@@ -260,7 +260,7 @@
       $('span',b).textContent=String(map[b.dataset.reaction]||0);
       b.classList.toggle('done',reactionRows.some(r=>String(r.wish_id)===String(wish.id)&&r.client_id===clientId&&r.reaction===b.dataset.reaction));
     });
-    $('#wish-dialog').showModal();
+    if (!$('#wish-dialog').open) $('#wish-dialog').showModal();
   }
 
   async function addReaction(type){
