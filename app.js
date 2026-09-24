@@ -5,7 +5,7 @@
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const fmt = new Intl.DateTimeFormat('vi-VN', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
-  let toastTimer, supabaseClient = null, wishChannel = null, currentWishes = [], totalWishCount = 0;
+  let toastTimer, supabaseClient = null, wishChannel = null, currentWishes = [], totalWishCount = 0, todayWishCount = 0;
 
   function toast(message) {
     const box = $('#toast');
@@ -178,16 +178,26 @@
   function updateStats() {
     $('#total-wishes').textContent = String(totalWishCount || currentWishes.length || 0);
     $('#hero-wish-count').textContent = String(totalWishCount || currentWishes.length || 0);
-    const today = new Date(); today.setHours(0,0,0,0);
-    $('#today-wishes').textContent = String(currentWishes.filter(w => new Date(w.created_at) >= today).length);
+    $('#today-wishes').textContent = String(todayWishCount || 0);
+  }
+
+  function startOfTodayIso() {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    return today.toISOString();
+  }
+
+  function isToday(value) {
+    return new Date(value) >= new Date(startOfTodayIso());
   }
 
   async function loadWishes({quiet=false}={}) {
     if (!supabaseClient) return;
     if (!quiet) setDbState('Đang nhìn lên bầu trời…','Đang tải những điều ước gần nhất.',true);
-    const [{data,error,count}, countResult] = await Promise.all([
+    const [{data,error,count}, countResult, todayCountResult] = await Promise.all([
       supabaseClient.from('wishes').select('id,name,message,created_at',{count:'exact'}).order('created_at',{ascending:false}).limit(60),
-      supabaseClient.from('wishes').select('id',{count:'exact',head:true})
+      supabaseClient.from('wishes').select('id',{count:'exact',head:true}),
+      supabaseClient.from('wishes').select('id',{count:'exact',head:true}).gte('created_at', startOfTodayIso())
     ]);
     if (error) {
       setDbState('Chưa đọc được bầu trời','Database chưa sẵn sàng hoặc cấu hình chưa đúng.',false);
@@ -198,27 +208,48 @@
       id:w.id,name:cleanText(w.name,40),message:cleanText(w.message,180),created_at:w.created_at
     })) : [];
     totalWishCount = countResult.count ?? count ?? currentWishes.length;
+    todayWishCount = todayCountResult.count ?? currentWishes.filter(w => isToday(w.created_at)).length;
     renderWishes(); updateStats();
     setDbState('Bầu trời đang trực tuyến',`${totalWishCount} điều ước đang được giữ dưới trăng.`,true);
   }
 
   function subscribeWishes() {
-    if (!supabaseClient) return;
+    if (!supabaseClient) return Promise.resolve();
     wishChannel?.unsubscribe?.();
-    wishChannel = supabaseClient
-      .channel('public-wishes-live')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'wishes'}, payload => {
-        const raw=payload.new||{};
-        const wish={id:raw.id,name:cleanText(raw.name,40),message:cleanText(raw.message,180),created_at:raw.created_at};
-        if(!wish.name||!wish.message)return;
-        if(!currentWishes.some(w=>String(w.id)===String(wish.id)))currentWishes.unshift(wish);
-        currentWishes=currentWishes.slice(0,60); totalWishCount++;
-        renderWishes();updateStats();burst(w*.72,h*.35,34);
-        toast(`Một chiếc đèn mới của ${wish.name} vừa bay lên ✨`);
-      })
-      .subscribe(status => {
-        if(status==='SUBSCRIBED')setDbState('Bầu trời đang trực tuyến','Điều ước mới sẽ xuất hiện ngay, không cần tải lại.',true);
-      });
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      wishChannel = supabaseClient
+        .channel('public-wishes-live')
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'wishes'}, payload => {
+          const raw=payload.new||{};
+          const wish={id:raw.id,name:cleanText(raw.name,40),message:cleanText(raw.message,180),created_at:raw.created_at};
+          if(!wish.name||!wish.message)return;
+          const exists = currentWishes.some(w=>String(w.id)===String(wish.id));
+          if(!exists){
+            currentWishes.unshift(wish);
+            currentWishes=currentWishes.slice(0,60);
+            totalWishCount++;
+            if(isToday(wish.created_at)) todayWishCount++;
+          }
+          renderWishes();updateStats();burst(w*.72,h*.35,34);
+          if(!exists) toast(`Một chiếc đèn mới của ${wish.name} vừa bay lên ✨`);
+        })
+        .subscribe(status => {
+          if(status==='SUBSCRIBED'){
+            setDbState('Bầu trời đang trực tuyến','Điều ước mới sẽ xuất hiện ngay, không cần tải lại.',true);
+            finish();
+          } else if(status==='CHANNEL_ERROR' || status==='TIMED_OUT' || status==='CLOSED') {
+            finish();
+          }
+        });
+      setTimeout(finish, 5000);
+    });
   }
 
   async function submitWish(name,message) {
@@ -237,7 +268,12 @@
       $('#wish-status').textContent=`Đèn của ${name} đã được thả lên bầu trời chung.`;
       wishMessage.value='';countWish();
       if(data&&!currentWishes.some(w=>String(w.id)===String(data.id))){
-        currentWishes.unshift(data);currentWishes=currentWishes.slice(0,60);totalWishCount++;renderWishes();updateStats();
+        currentWishes.unshift(data);
+        currentWishes=currentWishes.slice(0,60);
+        totalWishCount++;
+        if(isToday(data.created_at)) todayWishCount++;
+        renderWishes();
+        updateStats();
       }
       burst(w*.55,h*.42,70);
       return data;
@@ -266,8 +302,8 @@
     }
     try{
       supabaseClient=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+      await subscribeWishes();
       await loadWishes({quiet:true});
-      subscribeWishes();
     }catch(err){
       console.error(err); setDbState('Không kết nối được database','Kiểm tra URL/key hoặc cấu hình RLS.',false);
     }
