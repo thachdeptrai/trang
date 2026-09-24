@@ -465,6 +465,7 @@
 
   function resetCreator() {
     wishMessage.value = '';
+    $('#wish-status').textContent = '';
     updateWishCount();
     selectedCategory = 'other';
     selectedColor = 'amber';
