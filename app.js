@@ -1,24 +1,48 @@
 'use strict';
 
-(() => {
-  const $ = (s, root = document) => root.querySelector(s);
-  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
-  const fmt = new Intl.DateTimeFormat('vi-VN', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+(function () {
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const timeFmt = new Intl.DateTimeFormat('vi-VN', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  const PAGE_SIZE = 18;
+  const SKY_LIMIT = 36;
 
   let supabaseClient = null;
   let wishChannel = null;
   let reactionChannel = null;
-  let currentWishes = [];
-  let reactionRows = [];
-  let totalWishCount = 0;
-  let todayWishCount = 0;
-  let totalReactionCount = 0;
-  let activeFilter = 'latest';
-  let activeDialogWish = null;
-  let toastTimer = null;
+  let lightChannel = null;
+  let presenceChannel = null;
 
-  const getClientId = () => {
+  let skyRows = [];
+  let feedRows = [];
+  let feedPage = 0;
+  let feedTotal = 0;
+  let feedHasMore = true;
+  let activeSort = 'latest';
+  let activeCategory = 'all';
+  let searchTerm = '';
+  let activeWish = null;
+
+  let totalWishes = 0;
+  let totalLights = 0;
+  let onlineCount = 1;
+  let creatorStep = 1;
+  let selectedCategory = 'other';
+  let selectedColor = 'amber';
+  let selectedStyle = 'classic';
+
+  let toastTimer = null;
+  let searchTimer = null;
+  let rabbitTimer = null;
+  let rabbitHideTimer = null;
+
+  const seenWishIds = new Set();
+  const seenReactionIds = new Set();
+  const seenLightIds = new Set();
+  const refreshWishTimers = new Map();
+
+  function getClientId() {
     try {
       let id = localStorage.getItem('trang-client-id');
       if (!id) {
@@ -26,381 +50,1121 @@
         localStorage.setItem('trang-client-id', id);
       }
       return id;
-    } catch {
+    } catch (error) {
       return crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-4000-8000-000000000001';
     }
-  };
+  }
   const clientId = getClientId();
 
-  function cleanText(value,max){
-    return String(value ?? '').replace(/[<>]/g,'').replace(/\s+/g,' ').trim().slice(0,max);
+  const categoryLabels = {
+    other:'TẤT CẢ',
+    family:'GIA ĐÌNH',
+    health:'SỨC KHỎE',
+    love:'TÌNH YÊU',
+    dream:'ƯỚC MƠ',
+    luck:'MAY MẮN'
+  };
+  const colorLabels = {amber:'Vàng', red:'Đỏ', jade:'Ngọc', blue:'Xanh', violet:'Tím'};
+  const styleLabels = {classic:'Cổ điển', round:'Tròn', lotus:'Liên hoa', diamond:'Kim cương', tower:'Tháp'};
+  const scenes = ['gold','blue','red'];
+
+  function cleanText(value, max) {
+    return String(value == null ? '' : value).replace(/[<>]/g,'').replace(/\s+/g,' ').trim().slice(0,max);
   }
 
-  function toast(message){
-    const el = $('#toast');
-    el.textContent = message;
-    el.classList.add('visible');
+  function toast(message) {
+    const box = $('#toast');
+    box.textContent = message;
+    box.classList.add('visible');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('visible'), 3200);
+    toastTimer = setTimeout(function () { box.classList.remove('visible'); }, 3200);
   }
 
-  function setDbState(title,detail,online=false){
+  function formatTime(value) {
+    try { return timeFmt.format(new Date(value)); } catch (error) { return ''; }
+  }
+
+  function setDbState(title, detail, online) {
     $('#db-state').textContent = title;
-    $('#db-state-detail').textContent = detail;
-    $('#db-dot').classList.toggle('online',online);
-    $('#hero-status').textContent = online ? 'Bầu trời realtime đang mở' : 'Đang kết nối bầu trời';
-    $('#footer-status').textContent = online ? 'ONLINE' : 'CONNECTING';
+    $('#db-detail').textContent = detail;
+    $('#db-dot').classList.toggle('online', Boolean(online));
+    $('#hero-live-label').textContent = online ? 'REALTIME SKY · ONLINE' : 'REALTIME SKY · CONNECTING';
   }
 
-  // Header / menu / cursor.
-  const header = $('#header');
-  addEventListener('scroll', () => header.classList.toggle('is-scrolled', scrollY > 20), {passive:true});
-  const menuButton = $('#menu-button');
-  const mobileNav = $('#mobile-nav');
-  menuButton.addEventListener('click',() => {
-    const open = menuButton.getAttribute('aria-expanded') === 'true';
-    menuButton.setAttribute('aria-expanded',String(!open));
-    mobileNav.hidden = open;
-  });
-  $$('#mobile-nav a').forEach(a => a.addEventListener('click',() => {mobileNav.hidden=true;menuButton.setAttribute('aria-expanded','false');}));
+  function updateMetrics() {
+    $('#metric-wishes').textContent = String(totalWishes);
+    $('#metric-lights').textContent = String(totalLights);
+    $('#metric-online').textContent = String(onlineCount);
+    $('#header-online').textContent = String(onlineCount);
+    $('#sky-online').textContent = String(onlineCount);
+    $('#footer-online').textContent = String(onlineCount);
+    $('#sky-latest').textContent = String(Math.min(skyRows.length, SKY_LIMIT));
+  }
 
-  const glow = $('#cursor-glow');
-  addEventListener('pointermove', e => {
-    if (matchMedia('(hover:hover)').matches) {
-      glow.style.left = e.clientX + 'px';
-      glow.style.top = e.clientY + 'px';
-    }
+  const header = $('#site-header');
+  addEventListener('scroll', function () {
+    header.classList.toggle('is-scrolled', scrollY > 22);
   }, {passive:true});
 
-  // Scene controls.
-  const scenes = ['gold','blue','red'];
-  function setScene(scene){
-    if(!scenes.includes(scene)) return;
-    document.body.dataset.scene = scene;
-    $$('[data-scene]').forEach(b => b.classList.toggle('active', b.dataset.scene === scene));
-  }
-  $$('[data-scene]').forEach(b => b.addEventListener('click',() => setScene(b.dataset.scene)));
-  $('#scene-toggle').addEventListener('click',() => {
-    const i = scenes.indexOf(document.body.dataset.scene);
-    setScene(scenes[(i+1)%scenes.length]);
+  const menuButton = $('#menu-button');
+  const mobileNav = $('#mobile-nav');
+  menuButton.addEventListener('click', function () {
+    const open = menuButton.getAttribute('aria-expanded') === 'true';
+    menuButton.setAttribute('aria-expanded', String(!open));
+    mobileNav.hidden = open;
   });
-  $('#moon-intensity').addEventListener('input', e => document.documentElement.style.setProperty('--moon-strength', String(Number(e.target.value)/100)));
-  $('#star-density').addEventListener('input', e => {
-    document.documentElement.style.setProperty('--star-strength', String(Math.max(.2,Number(e.target.value)/100)));
-    rebuildStars(Number(e.target.value));
-  });
-  $('#cinema-mode').addEventListener('click',() => {
-    document.body.classList.toggle('cinema');
-    $('#cinema-mode').textContent = document.body.classList.contains('cinema') ? 'Thoát cinema' : 'Cinema mode';
+  $$('#mobile-nav a').forEach(function (a) {
+    a.addEventListener('click', function () {
+      mobileNav.hidden = true;
+      menuButton.setAttribute('aria-expanded','false');
+    });
   });
 
-  // Canvas sky.
-  const canvas = $('#sky');
-  const ctx = canvas?.getContext('2d');
-  let cw=innerWidth,ch=innerHeight,dpr=1,stars=[],sparks=[],raf=0,last=0;
-  function rebuildStars(density=70){
-    const count = Math.round((cw<720?35:80)*(density/70));
-    stars = Array.from({length:Math.max(12,count)},()=>({
-      x:Math.random()*cw,y:Math.random()*ch,r:.3+Math.random()*1.1,p:Math.random()*6.28,s:.04+Math.random()*.16
-    }));
+  const pointerLight = $('#pointer-light');
+  addEventListener('pointermove', function (event) {
+    if (!matchMedia('(hover:hover)').matches) return;
+    pointerLight.style.left = event.clientX + 'px';
+    pointerLight.style.top = event.clientY + 'px';
+  }, {passive:true});
+
+  const canvas = $('#sky-canvas');
+  const ctx = canvas ? canvas.getContext('2d') : null;
+  let cw = innerWidth;
+  let ch = innerHeight;
+  let dpr = 1;
+  let stars = [];
+  let sparks = [];
+  let raf = 0;
+  let lastFrame = 0;
+
+  function rebuildStars(density) {
+    density = density || Number($('#star-density') ? $('#star-density').value : 72);
+    const base = cw < 720 ? 34 : 78;
+    const count = Math.max(12, Math.round(base * density / 72));
+    stars = Array.from({length:count}, function () {
+      return {
+        x:Math.random()*cw,
+        y:Math.random()*ch,
+        r:.25+Math.random()*1.05,
+        phase:Math.random()*Math.PI*2,
+        speed:.03+Math.random()*.14
+      };
+    });
     startSky();
   }
-  function resizeSky(){
-    if(!ctx)return;
-    cw=innerWidth;ch=innerHeight;dpr=Math.min(devicePixelRatio||1,1.5);
-    canvas.width=Math.round(cw*dpr);canvas.height=Math.round(ch*dpr);
+
+  function resizeSky() {
+    if (!ctx) return;
+    cw = innerWidth;
+    ch = innerHeight;
+    dpr = Math.min(devicePixelRatio || 1, 1.5);
+    canvas.width = Math.round(cw*dpr);
+    canvas.height = Math.round(ch*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    rebuildStars(Number($('#star-density')?.value||70));
+    rebuildStars();
   }
-  function drawSky(t){
-    raf=0;if(!ctx||document.hidden)return;
-    const delta=Math.min((t-last)/16.7||1,2);last=t;ctx.clearRect(0,0,cw,ch);
-    for(const s of stars){
-      ctx.globalAlpha=.12+(Math.sin(t*.0009+s.p)+1)*.16;ctx.fillStyle='#f7d990';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
-      if(!reduced.matches){s.y-=s.s*delta;if(s.y<-2)s.y=ch+2;}
+
+  function drawSky(time) {
+    raf = 0;
+    if (!ctx || document.hidden) return;
+
+    const delta = Math.min((time-lastFrame)/16.7 || 1,2);
+    lastFrame = time;
+    ctx.clearRect(0,0,cw,ch);
+
+    stars.forEach(function (star) {
+      ctx.globalAlpha = .10 + (Math.sin(time*.0009+star.phase)+1)*.16;
+      ctx.fillStyle = '#f8dda0';
+      ctx.beginPath();
+      ctx.arc(star.x,star.y,star.r,0,Math.PI*2);
+      ctx.fill();
+      if (!reducedMotion.matches) {
+        star.y -= star.speed*delta;
+        if (star.y < -2) star.y = ch + 2;
+      }
+    });
+
+    for (let i=sparks.length-1;i>=0;i--) {
+      const p = sparks[i];
+      p.x += p.vx*delta;
+      p.y += p.vy*delta;
+      p.vy += .018*delta;
+      p.life -= delta;
+      if (p.life <= 0) {
+        sparks.splice(i,1);
+        continue;
+      }
+      ctx.globalAlpha = p.life/p.max;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fill();
     }
-    for(let i=sparks.length-1;i>=0;i--){
-      const p=sparks[i];p.x+=p.vx*delta;p.y+=p.vy*delta;p.vy+=.02*delta;p.life-=delta;
-      if(p.life<=0){sparks.splice(i,1);continue}
-      ctx.globalAlpha=p.life/p.max;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
-    }
-    ctx.globalAlpha=1;
-    if(!reduced.matches||sparks.length)raf=requestAnimationFrame(drawSky);
+
+    ctx.globalAlpha = 1;
+    if (!reducedMotion.matches || sparks.length) raf = requestAnimationFrame(drawSky);
   }
-  function startSky(){if(!raf&&!document.hidden)raf=requestAnimationFrame(drawSky)}
-  function burst(x,y,count=65){
-    if(!ctx||reduced.matches)return;
-    const colors=['#f5ce76','#fff1bc','#ff7f61','#81d6ff'];
-    for(let i=0;i<count;i++){
-      const a=Math.PI*2*i/count,s=.8+Math.random()*3.4,life=40+Math.random()*48;
-      sparks.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life,max:life,r:.7+Math.random()*1.6,color:colors[i%colors.length]});
+
+  function startSky() {
+    if (!raf && !document.hidden) raf = requestAnimationFrame(drawSky);
+  }
+
+  function burst(x,y,count) {
+    count = count || 55;
+    if (!ctx || reducedMotion.matches) return;
+    const colors = ['#f2ce82','#fff0ba','#ff8b61','#80d8ff'];
+    for (let i=0;i<count;i++) {
+      const angle = Math.PI*2*i/count;
+      const speed = .8 + Math.random()*3.1;
+      const life = 38 + Math.random()*46;
+      sparks.push({
+        x:x,
+        y:y,
+        vx:Math.cos(angle)*speed,
+        vy:Math.sin(angle)*speed,
+        life:life,
+        max:life,
+        r:.6+Math.random()*1.5,
+        color:colors[i%colors.length]
+      });
     }
-    if(sparks.length>650)sparks.splice(0,sparks.length-650);
+    if (sparks.length > 600) sparks.splice(0,sparks.length-600);
     startSky();
   }
-  resizeSky();startSky();
-  addEventListener('resize',resizeSky,{passive:true});
-  $('#fireworks').addEventListener('click',()=>{
-    if(reduced.matches)return toast('Bầu trời đã sáng lên ✦');
-    [0,260,520,780,1040,1300].forEach((d,i)=>setTimeout(()=>burst(cw*(.14+Math.random()*.72),ch*(.12+Math.random()*.46),48+i*5),d));
+
+  resizeSky();
+  startSky();
+  addEventListener('resize', resizeSky, {passive:true});
+
+  $('#dock-theme').addEventListener('click', function () {
+    const current = scenes.indexOf(document.body.dataset.scene);
+    document.body.dataset.scene = scenes[(current+1)%scenes.length];
+  });
+  $('#cinema-mode').addEventListener('click', function () {
+    document.body.classList.toggle('cinema');
+  });
+  $('#dock-settings').addEventListener('click', function () {
+    const popover = $('#dock-popover');
+    popover.hidden = !popover.hidden;
+  });
+  $('#moon-intensity').addEventListener('input', function (event) {
+    document.documentElement.style.setProperty('--moon-strength', String(Number(event.target.value)/100));
+  });
+  $('#star-density').addEventListener('input', function (event) {
+    document.documentElement.style.setProperty('--star-strength', String(Math.max(.2,Number(event.target.value)/100)));
+    rebuildStars(Number(event.target.value));
   });
 
-  // Dialogs.
-  $$('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog')?.close()));
-  $$('dialog').forEach(d=>d.addEventListener('click',e=>{
-    if(e.target!==d)return;
-    const r=d.getBoundingClientRect();
-    if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();
-  }));
+  let audio = null;
+  let master = null;
+  let musicOn = false;
+  let musicTimer = null;
+  let nextNote = 0;
+  let noteIndex = 0;
+  const melody = [0,2,4,7,9,7,4,2,0,4,7,12,9,7,4,2];
 
-  // Memory archive.
-  const memories={
-    lantern:{symbol:'🏮',title:'Đèn lồng',text:'Một nguồn sáng nhỏ, đủ để biến cả con đường thành đêm hội.'},
-    tea:{symbol:'🥮',title:'Bánh trăng',text:'Bẻ một miếng, chia cho nhau. Trung thu vốn đơn giản như vậy.'},
-    moon:{symbol:'🌕',title:'Trăng rằm',text:'Cùng một vầng trăng, dù mỗi người đang đứng ở một nơi khác.'}
-  };
-  $$('[data-memory]').forEach(b=>b.addEventListener('click',()=>{
-    const m=memories[b.dataset.memory];$('#memory-symbol').textContent=m.symbol;$('#memory-title').textContent=m.title;$('#memory-text').textContent=m.text;$('#memory-dialog').showModal();
-  }));
-
-  // Wishes.
-  const wishMessage=$('#wish-message'),wishName=$('#wish-name'),wishSubmit=$('#wish-submit');
-  function updateWishCount(){$('#wish-count').textContent=`${wishMessage.value.length} / 180`}
-  wishMessage.addEventListener('input',updateWishCount);
-  $$('[data-wish]').forEach(b=>b.addEventListener('click',()=>{wishMessage.value=b.dataset.wish;updateWishCount();wishMessage.focus()}));
-  try{wishName.value=cleanText(localStorage.getItem('trang-wish-name')||'',40)}catch{}
-
-  const startToday=()=>{const d=new Date();d.setHours(0,0,0,0);return d};
-  const isToday=v=>new Date(v)>=startToday();
-  const scoreFor=id=>reactionRows.filter(r=>String(r.wish_id)===String(id)).length;
-  const countsFor=id=>{
-    const rows=reactionRows.filter(r=>String(r.wish_id)===String(id));
-    return {
-      heart:rows.filter(r=>r.reaction==='heart').length,
-      star:rows.filter(r=>r.reaction==='star').length,
-      moon:rows.filter(r=>r.reaction==='moon').length
-    };
-  };
-
-  function renderLanterns(){
-    const sky=$('#floating-wishes');sky.replaceChildren();
-    currentWishes.slice(0,16).forEach((wish,i)=>{
-      const b=document.createElement('button');b.type='button';b.className='sky-lantern';
-      const left=4+((i*19+7)%58),top=7+((i*23+5)%74);
-      b.style.left=left+'%';b.style.top=top+'%';b.style.setProperty('--dur',(11+(i%6)*1.7)+'s');b.style.animationDelay=(-(i%7)*1.2)+'s';
-      b.innerHTML='<span class="lantern-body"></span><span class="lantern-name"></span>';
-      $('.lantern-name',b).textContent=wish.name;
-      b.setAttribute('aria-label',`Mở điều ước của ${wish.name}`);
-      b.addEventListener('click',()=>openWish(wish));
-      sky.append(b);
-    });
+  function playNote(freq,start,duration,volume) {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(.0001,start);
+    gain.gain.exponentialRampToValueAtTime(volume,start+.04);
+    gain.gain.exponentialRampToValueAtTime(.0001,start+duration);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(start);
+    osc.stop(start+duration+.1);
   }
 
-  function filteredWishes(){
-    const q=cleanText($('#wish-search').value,100).toLocaleLowerCase('vi');
-    let list=currentWishes.filter(w=>!q||w.name.toLocaleLowerCase('vi').includes(q)||w.message.toLocaleLowerCase('vi').includes(q));
-    if(activeFilter==='today')list=list.filter(w=>isToday(w.created_at));
-    if(activeFilter==='top')list=[...list].sort((a,b)=>scoreFor(b.id)-scoreFor(a.id)||new Date(b.created_at)-new Date(a.created_at));
-    else list=[...list].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
-    return list;
-  }
-
-  function makeWishCard(wish){
-    const c=countsFor(wish.id),article=document.createElement('article');article.className='wish-item';article.tabIndex=0;article.setAttribute('role','button');
-    const head=document.createElement('div');head.className='wish-item-head';
-    const name=document.createElement('p');name.className='wish-item-name';name.textContent=wish.name;
-    const score=document.createElement('span');score.className='wish-score';score.textContent=`✦ ${scoreFor(wish.id)}`;head.append(name,score);
-    const msg=document.createElement('p');msg.className='wish-item-message';msg.textContent=wish.message;
-    const foot=document.createElement('div');foot.className='wish-item-foot';
-    const time=document.createElement('span');time.textContent=fmt.format(new Date(wish.created_at));
-    const mini=document.createElement('span');mini.className='wish-mini-reactions';mini.innerHTML=`<span>♥ ${c.heart}</span><span>✦ ${c.star}</span><span>☾ ${c.moon}</span>`;
-    foot.append(time,mini);article.append(head,msg,foot);
-    const open=()=>openWish(wish);article.addEventListener('click',open);article.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open()}});
-    return article;
-  }
-
-  function renderWishGrid(){
-    const list=$('#wish-list'),empty=$('#empty-wishes');list.querySelectorAll('.wish-item').forEach(n=>n.remove());
-    const wishes=filteredWishes();
-    empty.hidden=!!wishes.length;
-    wishes.slice(0,30).forEach(w=>list.append(makeWishCard(w)));
-    $('#visible-wishes').textContent=`${Math.min(wishes.length,30)} đang hiển thị`;
-    renderTrending();
-  }
-
-  function renderTrending(){
-    const host=$('#trending-list');
-    const top=[...currentWishes].sort((a,b)=>scoreFor(b.id)-scoreFor(a.id)).slice(0,3);
-    host.replaceChildren();
-    if(!top.length){host.textContent='Chưa có dữ liệu.';return}
-    top.forEach((w,i)=>{
-      const row=document.createElement('button');row.type='button';row.className='trend-row';
-      const rank=document.createElement('span');rank.className='trend-rank';rank.textContent=String(i+1).padStart(2,'0');
-      const info=document.createElement('span');const b=document.createElement('b');b.textContent=w.name;const small=document.createElement('small');small.textContent=w.message.slice(0,44)+(w.message.length>44?'…':'');info.append(b,small);
-      const score=document.createElement('span');score.className='trend-score';score.textContent=`✦ ${scoreFor(w.id)}`;row.append(rank,info,score);row.addEventListener('click',()=>openWish(w));host.append(row);
-    });
-  }
-
-  function updateStats(){
-    $('#total-wishes').textContent=String(totalWishCount);
-    $('#today-wishes').textContent=String(todayWishCount);
-    $('#total-reactions').textContent=String(totalReactionCount);
-    $('#hero-wish-count').textContent=String(totalWishCount);
-    $('#hero-today-count').textContent=String(todayWishCount);
-    $('#hero-reaction-count').textContent=String(totalReactionCount);
-  }
-
-  function openWish(wish){
-    activeDialogWish=wish;const c=countsFor(wish.id);
-    $('#wish-dialog-name').textContent=wish.name;
-    $('#wish-dialog-message').textContent='“'+wish.message+'”';
-    $('#wish-dialog-time').textContent=fmt.format(new Date(wish.created_at));
-    const map={heart:c.heart,star:c.star,moon:c.moon};
-    $$('#reaction-bar [data-reaction]').forEach(b=>{
-      $('span',b).textContent=String(map[b.dataset.reaction]||0);
-      b.classList.toggle('done',reactionRows.some(r=>String(r.wish_id)===String(wish.id)&&r.client_id===clientId&&r.reaction===b.dataset.reaction));
-    });
-    if (!$('#wish-dialog').open) $('#wish-dialog').showModal();
-  }
-
-  async function addReaction(type){
-    if(!activeDialogWish||!supabaseClient)return;
-    if(!['heart','star','moon'].includes(type))return;
-    const exists=reactionRows.some(r=>String(r.wish_id)===String(activeDialogWish.id)&&r.client_id===clientId&&r.reaction===type);
-    if(exists)return toast('Reaction này đã được thả rồi.');
-    const {data,error}=await supabaseClient.from('wish_reactions').insert({wish_id:activeDialogWish.id,client_id:clientId,reaction:type}).select('id,wish_id,client_id,reaction,created_at').single();
-    if(error){
-      if(error.code==='23505')return toast('Reaction này đã được thả rồi.');
-      console.error(error);return toast('Chưa gửi được reaction.');
+  function scheduleMusic() {
+    if (!musicOn || !audio || audio.state !== 'running') return;
+    while (nextNote < audio.currentTime+.5) {
+      const i = noteIndex++ % melody.length;
+      playNote(261.63*Math.pow(2,melody[i]/12),nextNote,2,.14);
+      if (i%4===0) playNote(130.8,nextNote,3,.055);
+      nextNote += .72;
     }
-    if(data&&!reactionRows.some(r=>String(r.id)===String(data.id))){reactionRows.push(data);totalReactionCount++;updateStats();renderWishGrid();openWish(activeDialogWish)}
-    burst(cw*.5,ch*.46,25);
   }
-  $$('#reaction-bar [data-reaction]').forEach(b=>b.addEventListener('click',()=>addReaction(b.dataset.reaction)));
 
-  async function loadData({quiet=false}={}){
-    if(!supabaseClient)return;
-    if(!quiet)setDbState('Đang đồng bộ','Wishes + reactions',false);
-    const since=startToday().toISOString();
-    const [wishRes,wishCountRes,todayRes,reactionRes,reactionCountRes]=await Promise.all([
-      supabaseClient.from('wishes').select('id,name,message,created_at').order('created_at',{ascending:false}).limit(100),
-      supabaseClient.from('wishes').select('id',{count:'exact',head:true}),
-      supabaseClient.from('wishes').select('id',{count:'exact',head:true}).gte('created_at',since),
-      supabaseClient.from('wish_reactions').select('id,wish_id,client_id,reaction,created_at').order('created_at',{ascending:false}).limit(2000),
-      supabaseClient.from('wish_reactions').select('id',{count:'exact',head:true})
+  $('#sound').addEventListener('click', async function () {
+    try {
+      if (!audio) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) throw new Error('unsupported');
+        audio = new AudioCtx();
+        master = audio.createGain();
+        master.gain.value = .25;
+        master.connect(audio.destination);
+      }
+      if (musicOn) {
+        musicOn = false;
+        clearInterval(musicTimer);
+        await audio.suspend();
+      } else {
+        await audio.resume();
+        musicOn = true;
+        nextNote = audio.currentTime+.06;
+        scheduleMusic();
+        musicTimer = setInterval(scheduleMusic,220);
+      }
+      $('#sound').setAttribute('aria-pressed',String(musicOn));
+    } catch (error) {
+      toast('Trình duyệt chưa cho phép phát âm thanh.');
+    }
+  });
+
+  function seeded(id,salt) {
+    salt = salt || 0;
+    const x = (Number(id)*9301 + 49297 + salt*233) % 233280;
+    return x / 233280;
+  }
+
+  function createLantern(row,index,interactive) {
+    index = index || 0;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'living-lantern color-' + (row.lantern_color || 'amber') + ' style-' + (row.lantern_style || 'classic');
+    if ((Number(row.light_count)||0) > 0) button.classList.add('is-lit');
+
+    const depthSeed = seeded(row.id,index+3);
+    const scale = .48 + depthSeed*.78;
+    const blur = Math.max(0,(1-scale)*1.5);
+    const opacity = .48 + scale*.42;
+
+    button.style.setProperty('--left', (4 + seeded(row.id,1)*58) + '%');
+    button.style.setProperty('--top', (6 + seeded(row.id,2)*76) + '%');
+    button.style.setProperty('--scale', scale.toFixed(2));
+    button.style.setProperty('--blur', blur.toFixed(2)+'px');
+    button.style.setProperty('--opacity', opacity.toFixed(2));
+    button.style.setProperty('--depth', Math.round((scale-.75)*320)+'px');
+    button.style.setProperty('--z', String(Math.round(scale*30)));
+    button.style.setProperty('--duration', (12+seeded(row.id,4)*10).toFixed(1)+'s');
+    button.style.setProperty('--delay', (-seeded(row.id,5)*9).toFixed(1)+'s');
+    button.style.setProperty('--drift', (-24+seeded(row.id,6)*52).toFixed(0)+'px');
+
+    button.innerHTML = '<span class="lantern-shell" aria-hidden="true"></span><span class="lantern-name"></span>';
+    $('.lantern-name',button).textContent = row.name;
+    button.setAttribute('aria-label','Mở điều ước của ' + row.name);
+    if (interactive) button.addEventListener('click',function () { openWishPanel(row); });
+    return button;
+  }
+
+  function renderLivingSky() {
+    const host = $('#living-lanterns');
+    host.replaceChildren();
+    skyRows.slice(0,SKY_LIMIT).forEach(function (row,index) {
+      host.append(createLantern(row,index,true));
+    });
+    updateMetrics();
+  }
+
+  const wishName = $('#wish-name');
+  const wishMessage = $('#wish-message');
+  try { wishName.value = cleanText(localStorage.getItem('trang-wish-name') || '',40); } catch (error) {}
+
+  function updateWishCount() {
+    $('#wish-count').textContent = String(wishMessage.value.length) + ' / 180';
+  }
+  wishMessage.addEventListener('input',updateWishCount);
+
+  function setCreatorStep(step) {
+    creatorStep = step;
+    $$('.creator-step').forEach(function (el) {
+      el.classList.toggle('active',Number(el.dataset.step)===step);
+    });
+    $$('.creator-step-dot').forEach(function (el) {
+      el.classList.toggle('active',Number(el.dataset.stepDot)<=step);
+    });
+
+    if (step===3) {
+      const name = cleanText(wishName.value,40);
+      const message = cleanText(wishMessage.value,180);
+      $('#review-name').textContent = name || '—';
+      $('#review-message').textContent = message || '—';
+      $('#review-meta').textContent = categoryLabels[selectedCategory] + ' · ' + colorLabels[selectedColor] + ' · ' + styleLabels[selectedStyle];
+      const lantern = $('#review-lantern');
+      lantern.className = 'review-lantern color-' + selectedColor + ' style-' + selectedStyle;
+      lantern.innerHTML = '<span class="lantern-shell"></span>';
+    }
+  }
+
+  function validateCreatorFirstStep() {
+    const name = cleanText(wishName.value,40);
+    const message = cleanText(wishMessage.value,180);
+    if (!name) {
+      toast('Nhập tên hiển thị trước.');
+      wishName.focus();
+      return false;
+    }
+    if (!message) {
+      toast('Viết điều ước trước.');
+      wishMessage.focus();
+      return false;
+    }
+    return true;
+  }
+
+  $$('.creator-next').forEach(function (button) {
+    button.addEventListener('click',function () {
+      const next = Number(button.dataset.next);
+      if (creatorStep===1 && !validateCreatorFirstStep()) return;
+      setCreatorStep(next);
+    });
+  });
+
+  $$('.creator-back').forEach(function (button) {
+    button.addEventListener('click',function () {
+      setCreatorStep(Number(button.dataset.back));
+    });
+  });
+
+  $$('#category-options [data-category]').forEach(function (button) {
+    button.addEventListener('click',function () {
+      selectedCategory = button.dataset.category;
+      $$('#category-options [data-category]').forEach(function (x) {
+        x.classList.toggle('active',x===button);
+      });
+    });
+  });
+
+  function updateLanternPreview() {
+    const preview = $('#lantern-preview');
+    preview.className = 'lantern-preview color-' + selectedColor + ' style-' + selectedStyle;
+    preview.innerHTML = '<span class="lantern-shell"></span><i class="preview-glow"></i>';
+    $('#preview-label').textContent = colorLabels[selectedColor] + ' · ' + styleLabels[selectedStyle];
+  }
+
+  $$('#color-options [data-color]').forEach(function (button) {
+    button.addEventListener('click',function () {
+      selectedColor = button.dataset.color;
+      $$('#color-options [data-color]').forEach(function (x) {
+        x.classList.toggle('active',x===button);
+      });
+      updateLanternPreview();
+    });
+  });
+
+  $$('#style-options [data-style]').forEach(function (button) {
+    button.addEventListener('click',function () {
+      selectedStyle = button.dataset.style;
+      $$('#style-options [data-style]').forEach(function (x) {
+        x.classList.toggle('active',x===button);
+      });
+      updateLanternPreview();
+    });
+  });
+
+  function launchAnimation() {
+    const flight = document.createElement('div');
+    flight.className = 'launch-flight color-' + selectedColor + ' style-' + selectedStyle;
+    flight.innerHTML = '<span class="lantern-shell"></span>';
+    $('#launch-layer').append(flight);
+    setTimeout(function () { flight.remove(); },1700);
+  }
+
+  function resetCreator() {
+    wishMessage.value = '';
+    updateWishCount();
+    selectedCategory = 'other';
+    selectedColor = 'amber';
+    selectedStyle = 'classic';
+    $$('#category-options [data-category]').forEach(function (x) {
+      x.classList.toggle('active',x.dataset.category==='other');
+    });
+    $$('#color-options [data-color]').forEach(function (x) {
+      x.classList.toggle('active',x.dataset.color==='amber');
+    });
+    $$('#style-options [data-style]').forEach(function (x) {
+      x.classList.toggle('active',x.dataset.style==='classic');
+    });
+    updateLanternPreview();
+    setCreatorStep(1);
+  }
+
+  function normalizeFeedRow(row) {
+    return Object.assign({},row,{
+      heart_count:Number(row.heart_count)||0,
+      star_count:Number(row.star_count)||0,
+      moon_count:Number(row.moon_count)||0,
+      light_count:Number(row.light_count)||0,
+      activity_score:Number(row.activity_score)||0
+    });
+  }
+
+  function applyNewWish(raw) {
+    if (!raw || !raw.id || seenWishIds.has(String(raw.id))) return false;
+    seenWishIds.add(String(raw.id));
+    totalWishes++;
+    const row = normalizeFeedRow({
+      id:raw.id,
+      name:cleanText(raw.name,40),
+      message:cleanText(raw.message,180),
+      created_at:raw.created_at,
+      category:raw.category||'other',
+      lantern_color:raw.lantern_color||'amber',
+      lantern_style:raw.lantern_style||'classic',
+      search_text:cleanText((raw.name||'')+' '+(raw.message||''),240).toLowerCase(),
+      heart_count:0,
+      star_count:0,
+      moon_count:0,
+      light_count:0,
+      activity_score:0
+    });
+    skyRows.unshift(row);
+    skyRows = skyRows.slice(0,SKY_LIMIT);
+    renderLivingSky();
+    updateMetrics();
+    return true;
+  }
+
+  $('#wish-form').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (!validateCreatorFirstStep()) return;
+    if (!supabaseClient) return toast('Database chưa sẵn sàng.');
+
+    const lastSubmit = Number(sessionStorage.getItem('trang-last-wish') || 0);
+    if (Date.now()-lastSubmit < 7000) return toast('Đợi vài giây rồi thả chiếc đèn tiếp theo.');
+
+    const name = cleanText(wishName.value,40);
+    const message = cleanText(wishMessage.value,180);
+    const submit = $('#wish-submit');
+    submit.disabled = true;
+    submit.textContent = 'Đang thả…';
+
+    const result = await supabaseClient
+      .from('wishes')
+      .insert({
+        name:name,
+        message:message,
+        category:selectedCategory,
+        lantern_color:selectedColor,
+        lantern_style:selectedStyle
+      })
+      .select('id,name,message,created_at,category,lantern_color,lantern_style')
+      .single();
+
+    submit.disabled = false;
+    submit.textContent = 'Thả lên trời ↑';
+
+    if (result.error) {
+      console.error(result.error);
+      $('#wish-status').textContent = 'Chưa thả được. Thử lại nhé.';
+      return;
+    }
+
+    sessionStorage.setItem('trang-last-wish',String(Date.now()));
+    try { localStorage.setItem('trang-wish-name',name); } catch (error) {}
+    $('#wish-status').textContent = 'Đèn đã bay lên bầu trời chung.';
+    launchAnimation();
+    applyNewWish(result.data);
+    burst(cw*.44,ch*.42,72);
+
+    setTimeout(function () {
+      resetCreator();
+      loadFeed(true);
+    },1200);
+  });
+
+  function makeFeedCard(row) {
+    const card = document.createElement('article');
+    card.className = 'feed-card color-' + (row.lantern_color || 'amber');
+
+    const head = document.createElement('div');
+    head.className = 'feed-head';
+
+    const name = document.createElement('p');
+    name.className = 'feed-name';
+    name.textContent = row.name;
+
+    const badge = document.createElement('span');
+    badge.className = 'feed-badge';
+    badge.textContent = categoryLabels[row.category] || 'KHÁC';
+    head.append(name,badge);
+
+    const message = document.createElement('p');
+    message.className = 'feed-message';
+    message.textContent = row.message;
+
+    const foot = document.createElement('div');
+    foot.className = 'feed-foot';
+    const time = document.createElement('span');
+    time.textContent = formatTime(row.created_at);
+
+    const stats = document.createElement('span');
+    stats.className = 'feed-stats';
+    stats.innerHTML =
+      '<span>♥ ' + row.heart_count + '</span>' +
+      '<span>✦ ' + row.star_count + '</span>' +
+      '<span>☾ ' + row.moon_count + '</span>' +
+      '<span>🏮 ' + row.light_count + '</span>';
+
+    foot.append(time,stats);
+
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'feed-open';
+    open.setAttribute('aria-label','Mở điều ước của ' + row.name);
+    open.addEventListener('click',function () { openWishPanel(row); });
+
+    card.append(head,message,foot,open);
+    return card;
+  }
+
+  function renderFeed() {
+    const host = $('#wish-feed');
+    host.replaceChildren();
+
+    if (!feedRows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'feed-empty';
+      empty.textContent = 'Không tìm thấy điều ước phù hợp.';
+      host.append(empty);
+    } else {
+      feedRows.forEach(function (row) {
+        host.append(makeFeedCard(row));
+      });
+    }
+
+    $('#feed-count').textContent = String(feedTotal) + ' điều ước';
+    $('#load-more').hidden = !feedHasMore;
+  }
+
+  async function loadFeed(reset) {
+    reset = Boolean(reset);
+    if (!supabaseClient) return;
+
+    if (reset) {
+      feedPage = 0;
+      feedRows = [];
+      $('#wish-feed').innerHTML = '<div class="feed-loading"><i></i><i></i><i></i></div>';
+    }
+
+    const from = feedPage*PAGE_SIZE;
+    const to = from+PAGE_SIZE-1;
+
+    let query = supabaseClient.from('wish_feed').select('*',{count:'exact'});
+
+    if (searchTerm) query = query.ilike('search_text','%' + searchTerm + '%');
+    if (activeCategory !== 'all') query = query.eq('category',activeCategory);
+
+    if (activeSort === 'top') {
+      query = query.order('activity_score',{ascending:false}).order('created_at',{ascending:false});
+    } else if (activeSort === 'lit') {
+      query = query.order('light_count',{ascending:false}).order('created_at',{ascending:false});
+    } else {
+      query = query.order('created_at',{ascending:false});
+    }
+
+    const result = await query.range(from,to);
+
+    if (result.error) {
+      console.error(result.error);
+      toast('Chưa tải được bầu trời.');
+      return;
+    }
+
+    const rows = (result.data||[]).map(normalizeFeedRow);
+    feedRows = reset ? rows : feedRows.concat(rows);
+    feedTotal = result.count == null ? feedRows.length : result.count;
+    feedHasMore = feedRows.length < feedTotal && rows.length === PAGE_SIZE;
+    feedPage++;
+    renderFeed();
+  }
+
+  $('#load-more').addEventListener('click',function () { loadFeed(false); });
+
+  $('#wish-search').addEventListener('input',function (event) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      searchTerm = cleanText(event.target.value,80).toLowerCase();
+      loadFeed(true);
+    },260);
+  });
+
+  $$('#sort-tabs [data-sort]').forEach(function (button) {
+    button.addEventListener('click',function () {
+      activeSort = button.dataset.sort;
+      $$('#sort-tabs [data-sort]').forEach(function (x) {
+        x.classList.toggle('active',x===button);
+      });
+      loadFeed(true);
+    });
+  });
+
+  $('#category-filter').addEventListener('change',function (event) {
+    activeCategory = event.target.value;
+    loadFeed(true);
+  });
+
+  function randomWish() {
+    const source = skyRows.length ? skyRows : feedRows;
+    if (!source.length) return toast('Bầu trời đang trống.');
+    openWishPanel(source[Math.floor(Math.random()*source.length)]);
+  }
+
+  $('#hero-random').addEventListener('click',randomWish);
+  $('#random-wish').addEventListener('click',randomWish);
+
+  function syncPanelCounts(row) {
+    if (!activeWish || String(activeWish.id)!==String(row.id)) return;
+    activeWish = row;
+    $('#panel-light-count').textContent = String(row.light_count);
+    const counts = {heart:row.heart_count, star:row.star_count, moon:row.moon_count};
+    $$('#panel-reactions [data-reaction]').forEach(function (button) {
+      $('span',button).textContent = String(counts[button.dataset.reaction]||0);
+    });
+  }
+
+  async function openWishPanel(row) {
+    activeWish = normalizeFeedRow(row);
+
+    const lantern = $('#panel-lantern');
+    lantern.className = 'panel-lantern color-' + (activeWish.lantern_color || 'amber') + ' style-' + (activeWish.lantern_style || 'classic');
+    lantern.innerHTML = '<span class="lantern-shell"></span><i></i>';
+
+    $('#panel-category').textContent = categoryLabels[activeWish.category] || 'ĐIỀU ƯỚC';
+    $('#panel-time').textContent = formatTime(activeWish.created_at);
+    $('#panel-name').textContent = activeWish.name;
+    $('#panel-message').textContent = activeWish.message;
+    syncPanelCounts(activeWish);
+
+    $$('#panel-reactions [data-reaction]').forEach(function (button) {
+      button.classList.remove('done');
+    });
+
+    $('#light-wish').classList.remove('done');
+    $('#light-wish b').textContent = 'Thắp sáng điều ước';
+
+    $('#wish-panel').classList.add('open');
+    $('#wish-panel').setAttribute('aria-hidden','false');
+    $('#panel-backdrop').hidden = false;
+
+    if (!supabaseClient) return;
+
+    const states = await Promise.all([
+      supabaseClient.from('wish_reactions').select('reaction').eq('wish_id',activeWish.id).eq('client_id',clientId),
+      supabaseClient.from('wish_lights').select('id').eq('wish_id',activeWish.id).eq('visitor_id',clientId).limit(1)
     ]);
-    if(wishRes.error||reactionRes.error){console.error(wishRes.error||reactionRes.error);setDbState('Mất kết nối','Thử làm mới',false);return}
-    currentWishes=(wishRes.data||[]).map(w=>({id:w.id,name:cleanText(w.name,40),message:cleanText(w.message,180),created_at:w.created_at}));
-    reactionRows=reactionRes.data||[];
-    totalWishCount=wishCountRes.count??currentWishes.length;
-    todayWishCount=todayRes.count??currentWishes.filter(w=>isToday(w.created_at)).length;
-    totalReactionCount=reactionCountRes.count??reactionRows.length;
-    renderLanterns();renderWishGrid();updateStats();setDbState('Realtime online',`${totalWishCount} wishes · ${totalReactionCount} reactions`,true);
+
+    const mine = new Set((states[0].data||[]).map(function (x) { return x.reaction; }));
+    $$('#panel-reactions [data-reaction]').forEach(function (button) {
+      button.classList.toggle('done',mine.has(button.dataset.reaction));
+    });
+
+    if ((states[1].data||[]).length) {
+      $('#light-wish').classList.add('done');
+      $('#light-wish b').textContent = 'Đã thắp sáng';
+    }
   }
 
-  function subscribeRealtime(){
-    if(!supabaseClient)return;
-    wishChannel?.unsubscribe?.();reactionChannel?.unsubscribe?.();
-    wishChannel=supabaseClient.channel('v3-wishes').on('postgres_changes',{event:'INSERT',schema:'public',table:'wishes'},p=>{
-      const r=p.new||{},wish={id:r.id,name:cleanText(r.name,40),message:cleanText(r.message,180),created_at:r.created_at};
-      if(!wish.name||!wish.message||currentWishes.some(w=>String(w.id)===String(wish.id)))return;
-      currentWishes.unshift(wish);currentWishes=currentWishes.slice(0,100);totalWishCount++;if(isToday(wish.created_at))todayWishCount++;
-      renderLanterns();renderWishGrid();updateStats();toast(`${wish.name} vừa thả một chiếc đèn.`);
-    }).subscribe();
-    reactionChannel=supabaseClient.channel('v3-reactions').on('postgres_changes',{event:'INSERT',schema:'public',table:'wish_reactions'},p=>{
-      const r=p.new||{};if(!r.id||reactionRows.some(x=>String(x.id)===String(r.id)))return;
-      reactionRows.unshift(r);totalReactionCount++;renderWishGrid();updateStats();
-      if(activeDialogWish&&String(activeDialogWish.id)===String(r.wish_id))openWish(activeDialogWish);
-    }).subscribe();
+  function closeWishPanel() {
+    $('#wish-panel').classList.remove('open');
+    $('#wish-panel').setAttribute('aria-hidden','true');
+    $('#panel-backdrop').hidden = true;
   }
 
-  $('#wish-form').addEventListener('submit',async e=>{
-    e.preventDefault();const name=cleanText(wishName.value,40),message=cleanText(wishMessage.value,180);
-    if(!name||!message)return;
-    if(!supabaseClient)return toast('Database chưa sẵn sàng.');
-    const last=Number(sessionStorage.getItem('trang-last-wish')||0);if(Date.now()-last<7000)return toast('Đợi vài giây rồi thả tiếp.');
-    wishSubmit.disabled=true;wishSubmit.firstChild.textContent='Đang thả… ';
-    const {data,error}=await supabaseClient.from('wishes').insert({name,message}).select('id,name,message,created_at').single();
-    wishSubmit.disabled=false;wishSubmit.firstChild.textContent='Thả lên trời ';
-    if(error){console.error(error);$('#wish-status').textContent='Chưa gửi được. Thử lại nhé.';return}
-    sessionStorage.setItem('trang-last-wish',String(Date.now()));try{localStorage.setItem('trang-wish-name',name)}catch{}
-    $('#wish-status').textContent='Đã thả lên bầu trời.';wishMessage.value='';updateWishCount();
-    if(data&&!currentWishes.some(w=>String(w.id)===String(data.id))){currentWishes.unshift(data);totalWishCount++;if(isToday(data.created_at))todayWishCount++;renderLanterns();renderWishGrid();updateStats()}
-    burst(cw*.45,ch*.4,70);
+  $('#panel-close').addEventListener('click',closeWishPanel);
+  $('#panel-backdrop').addEventListener('click',closeWishPanel);
+
+  async function refreshWishById(id) {
+    if (!supabaseClient) return;
+    const result = await supabaseClient.from('wish_feed').select('*').eq('id',id).single();
+    if (result.error || !result.data) return;
+
+    const row = normalizeFeedRow(result.data);
+    skyRows = skyRows.map(function (x) { return String(x.id)===String(id) ? row : x; });
+    feedRows = feedRows.map(function (x) { return String(x.id)===String(id) ? row : x; });
+
+    renderLivingSky();
+    renderFeed();
+    syncPanelCounts(row);
+  }
+
+  function scheduleWishRefresh(id) {
+    const key = String(id);
+    clearTimeout(refreshWishTimers.get(key));
+    refreshWishTimers.set(key,setTimeout(function () {
+      refreshWishTimers.delete(key);
+      refreshWishById(id);
+    },140));
+  }
+
+  async function addReaction(type) {
+    if (!activeWish || !supabaseClient || ['heart','star','moon'].indexOf(type)===-1) return;
+    const button = $('#panel-reactions [data-reaction="' + type + '"]');
+    if (button.classList.contains('done')) return toast('Reaction này đã được gửi.');
+
+    const result = await supabaseClient
+      .from('wish_reactions')
+      .insert({wish_id:activeWish.id,client_id:clientId,reaction:type})
+      .select('id,wish_id,client_id,reaction,created_at')
+      .single();
+
+    if (result.error) {
+      if (result.error.code==='23505') {
+        button.classList.add('done');
+        return toast('Reaction này đã được gửi.');
+      }
+      console.error(result.error);
+      return toast('Chưa gửi được reaction.');
+    }
+
+    button.classList.add('done');
+    if (result.data && result.data.id) seenReactionIds.add(String(result.data.id));
+    scheduleWishRefresh(activeWish.id);
+    burst(cw*.76,ch*.42,22);
+  }
+
+  $$('#panel-reactions [data-reaction]').forEach(function (button) {
+    button.addEventListener('click',function () {
+      addReaction(button.dataset.reaction);
+    });
   });
 
-  $('#wish-search').addEventListener('input',renderWishGrid);
-  $$('[data-filter]').forEach(b=>b.addEventListener('click',()=>{activeFilter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderWishGrid()}));
-  function openRandom(){
-    if(!currentWishes.length)return toast('Chưa có điều ước nào.');
-    openWish(currentWishes[Math.floor(Math.random()*currentWishes.length)]);
-  }
-  $('#random-wish').addEventListener('click',openRandom);$('#random-hero').addEventListener('click',openRandom);$('#refresh-wishes').addEventListener('click',()=>loadData());
+  $('#light-wish').addEventListener('click', async function () {
+    if (!activeWish || !supabaseClient) return;
+    const button = $('#light-wish');
+    if (button.classList.contains('done')) return toast('Bạn đã thắp sáng chiếc đèn này.');
 
-  // Lucky moon.
-  const fortunes=[
-    ['Đèn xanh','Một việc đang chậm sẽ bắt đầu chạy đúng hướng.'],
-    ['Trăng sáng','Có tin vui nhỏ đến từ công việc hoặc học tập.'],
-    ['Gió thuận','Thử làm điều bạn đã trì hoãn trong tuần này.'],
-    ['Sao gần','Một cuộc nói chuyện thẳng thắn sẽ giải quyết được nhiều thứ.'],
-    ['Trăng tròn','Tập trung vào một mục tiêu thay vì chia sức cho quá nhiều việc.'],
-    ['Đèn đỏ','Đừng vội quyết khi đang nóng; để qua một đêm rồi chọn.'],
-    ['Mây tan','Một vấn đề tưởng khó sẽ đơn giản hơn khi bạn bắt tay vào làm.']
-  ];
-  $('#draw-fortune').addEventListener('click',()=>{
-    const [title,text]=fortunes[Math.floor(Math.random()*fortunes.length)];
-    $('#fortune-orb').animate([{transform:'scale(.8) rotate(-20deg)',opacity:.45},{transform:'scale(1.12) rotate(8deg)'},{transform:'scale(1) rotate(0)'}],{duration:650,easing:'cubic-bezier(.2,.8,.2,1)'});
-    $('#fortune-title').textContent=title;$('#fortune-text').textContent=text;
+    const result = await supabaseClient
+      .from('wish_lights')
+      .insert({wish_id:activeWish.id,visitor_id:clientId})
+      .select('id,wish_id,visitor_id,created_at')
+      .single();
+
+    if (result.error) {
+      if (result.error.code==='23505') {
+        button.classList.add('done');
+        $('#light-wish b').textContent = 'Đã thắp sáng';
+        return toast('Bạn đã thắp sáng chiếc đèn này.');
+      }
+      console.error(result.error);
+      return toast('Chưa thắp sáng được.');
+    }
+
+    button.classList.add('done');
+    $('#light-wish b').textContent = 'Đã thắp sáng';
+
+    if (result.data && result.data.id && !seenLightIds.has(String(result.data.id))) {
+      seenLightIds.add(String(result.data.id));
+      totalLights++;
+      updateMetrics();
+    }
+
+    scheduleWishRefresh(activeWish.id);
+    burst(cw*.74,ch*.46,34);
+    toast('Chiếc đèn sáng hơn rồi ✦');
   });
 
-  // Rabbit game.
-  const arena=$('#game-arena'),rabbit=$('#moon-rabbit'),overlay=$('#game-overlay');
-  let gameActive=false,gameScore=0,gameTime=15,gameTimer=null;
-  function moveRabbit(){
-    const pad=20,maxX=Math.max(pad,arena.clientWidth-rabbit.offsetWidth-pad),maxY=Math.max(pad,arena.clientHeight-rabbit.offsetHeight-pad);
-    rabbit.style.left=(pad+Math.random()*(maxX-pad))+'px';rabbit.style.top=(pad+Math.random()*(maxY-pad))+'px';
-  }
-  function stopGame(){
-    gameActive=false;clearInterval(gameTimer);rabbit.style.display='none';overlay.hidden=false;
-    $('.game-icon',overlay).textContent=gameScore>=12?'🏆':'☾';
-    $('h3',overlay).textContent=`${gameScore} điểm`;
-    $('p',overlay).textContent=gameScore>=12?'Phản xạ rất nhanh.':'Chơi lại để phá điểm.';
-    $('#start-game').textContent='Chơi lại';
-  }
-  $('#start-game').addEventListener('click',()=>{
-    gameActive=true;gameScore=0;gameTime=15;$('#game-score').textContent='0';$('#game-time').textContent='15';overlay.hidden=true;rabbit.style.display='block';moveRabbit();
-    clearInterval(gameTimer);gameTimer=setInterval(()=>{gameTime--;$('#game-time').textContent=String(gameTime);if(gameTime<=0)stopGame()},1000);
+  $('#report-wish').addEventListener('click',function () {
+    if (!activeWish) return;
+    $('#report-detail').value = '';
+    $('#report-dialog').showModal();
   });
-  rabbit.addEventListener('click',()=>{if(!gameActive)return;gameScore++;$('#game-score').textContent=String(gameScore);moveRabbit();if(gameScore%5===0)burst(cw*.5,ch*.55,18)});
 
-  // Greeting cards.
-  function validCard(card){if(!card||typeof card!=='object')throw new Error('Thiệp không hợp lệ.');const out={};for(const [k,max] of [['to',50],['message',400],['from',50]]){out[k]=cleanText(card[k],max);if(!out[k])throw new Error('Điền đủ thông tin.')}return out}
-  function showCard(card){$('#preview-to').textContent=`Gửi ${card.to},`;$('#preview-message').textContent=card.message;$('#preview-from').textContent=card.from+'.'}
-  function cardLink(card){const bytes=new TextEncoder().encode(JSON.stringify(card));let bin='';bytes.forEach(b=>bin+=String.fromCharCode(b));const u=new URL(location.href);u.hash='card='+btoa(bin).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');return u.href}
-  $('#open-letter').addEventListener('click',()=>$('#letter-dialog').showModal());
-  $('#letter-form').addEventListener('submit',e=>{e.preventDefault();try{const c=validCard({to:$('#recipient').value,message:$('#greeting').value,from:$('#sender').value});showCard(c);$('#share-link').value=cardLink(c);$('#share-result').hidden=false;$('#share-link').select()}catch(err){toast(err.message)}});
-  async function copyLink(){try{await navigator.clipboard.writeText($('#share-link').value);toast('Đã sao chép link.')}catch{$('#share-link').select();toast('Nhấn Ctrl+C để sao chép.')}}
-  $('#copy-link').addEventListener('click',copyLink);
-  $('#share-native').addEventListener('click',async()=>{if(navigator.share){try{await navigator.share({title:'TRĂNG — lời chúc Trung thu',url:$('#share-link').value})}catch(err){if(err.name!=='AbortError')copyLink()}}else copyLink()});
-  function readCard(){if(!location.hash.startsWith('#card='))return;try{let s=location.hash.slice(6).replaceAll('-','+').replaceAll('_','/');while(s.length%4)s+='=';const bytes=Uint8Array.from(atob(s),c=>c.charCodeAt(0));const c=validCard(JSON.parse(new TextDecoder().decode(bytes)));showCard(c);$('#received-to').textContent=`Gửi ${c.to},`;$('#received-message').textContent=c.message;$('#received-from').textContent=c.from;$('#received-dialog').showModal()}catch{toast('Link thiệp không hợp lệ.')}}
-  readCard();addEventListener('hashchange',readCard);
+  $('#report-form').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (!activeWish || !supabaseClient) return;
 
-  // Ambient sound.
-  let audio=null,master=null,musicOn=false,musicTimer=null,nextNote=0,noteIndex=0;
-  const melody=[0,2,4,7,9,7,4,2,0,4,7,12,9,7,4,2];
-  function note(freq,start,dur,vol){const o=audio.createOscillator(),g=audio.createGain();o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(.0001,start);g.gain.exponentialRampToValueAtTime(vol,start+.04);g.gain.exponentialRampToValueAtTime(.0001,start+dur);o.connect(g);g.connect(master);o.start(start);o.stop(start+dur+.1)}
-  function schedule(){if(!musicOn||!audio||audio.state!=='running')return;while(nextNote<audio.currentTime+.5){const i=noteIndex++%melody.length;note(261.63*Math.pow(2,melody[i]/12),nextNote,2,.15);if(i%4===0)note(130.8,nextNote,3,.06);nextNote+=.72}}
-  $('#sound').addEventListener('click',async()=>{try{if(!audio){const A=window.AudioContext||window.webkitAudioContext;if(!A)throw new Error();audio=new A();master=audio.createGain();master.gain.value=.26;master.connect(audio.destination)}if(musicOn){musicOn=false;clearInterval(musicTimer);await audio.suspend()}else{await audio.resume();musicOn=true;nextNote=audio.currentTime+.06;schedule();musicTimer=setInterval(schedule,220)}$('#sound').setAttribute('aria-pressed',String(musicOn));$('#sound-label').textContent=musicOn?'Tắt':'Nhạc'}catch{toast('Trình duyệt chưa cho phát âm thanh.')}});
+    const result = await supabaseClient.from('wish_reports').insert({
+      wish_id:activeWish.id,
+      reporter_id:clientId,
+      reason:$('#report-reason').value,
+      detail:cleanText($('#report-detail').value,240) || null
+    });
 
-  async function initDatabase(){
-    const cfg=window.TRANG_SUPABASE||{};
-    if(!window.supabase?.createClient||!cfg.url||!cfg.key||String(cfg.url).includes('YOUR_')){setDbState('Chưa có database','Supabase config',false);return}
-    supabaseClient=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
-    await loadData({quiet:true});subscribeRealtime();
+    if (result.error) {
+      if (result.error.code==='23505') toast('Bạn đã báo cáo điều ước này.');
+      else {
+        console.error(result.error);
+        toast('Chưa gửi được báo cáo.');
+      }
+      return;
+    }
+
+    $('#report-dialog').close();
+    toast('Đã gửi báo cáo.');
+  });
+
+  function waitSubscribe(channel) {
+    return new Promise(function (resolve) {
+      let done = false;
+      function finish() {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      }
+      channel.subscribe(function (status) {
+        if (status==='SUBSCRIBED' || status==='CHANNEL_ERROR' || status==='TIMED_OUT' || status==='CLOSED') finish();
+      });
+      setTimeout(finish,5000);
+    });
   }
 
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelAnimationFrame(raf);raf=0;if(audio&&musicOn)audio.suspend().catch(()=>{})}else{last=0;startSky();if(audio&&musicOn)audio.resume().catch(()=>{})}});
-  addEventListener('pagehide',()=>{wishChannel?.unsubscribe?.();reactionChannel?.unsubscribe?.()});
+  async function subscribeRealtime() {
+    wishChannel = supabaseClient
+      .channel('v4-wishes')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'wishes'},function (payload) {
+        if (applyNewWish(payload.new)) {
+          toast(cleanText(payload.new.name,40) + ' vừa thả một chiếc đèn.');
+          if (activeSort==='latest' && !searchTerm && activeCategory==='all') loadFeed(true);
+        }
+      });
+
+    reactionChannel = supabaseClient
+      .channel('v4-reactions')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'wish_reactions'},function (payload) {
+        const row = payload.new || {};
+        if (!row.id || seenReactionIds.has(String(row.id))) return;
+        seenReactionIds.add(String(row.id));
+        scheduleWishRefresh(row.wish_id);
+      });
+
+    lightChannel = supabaseClient
+      .channel('v4-lights')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'wish_lights'},function (payload) {
+        const row = payload.new || {};
+        if (!row.id || seenLightIds.has(String(row.id))) return;
+        seenLightIds.add(String(row.id));
+        totalLights++;
+        updateMetrics();
+        scheduleWishRefresh(row.wish_id);
+      });
+
+    await Promise.all([
+      waitSubscribe(wishChannel),
+      waitSubscribe(reactionChannel),
+      waitSubscribe(lightChannel)
+    ]);
+  }
+
+  function startPresence() {
+    presenceChannel = supabaseClient
+      .channel('moon-presence-v4',{config:{presence:{key:clientId}}})
+      .on('presence',{event:'sync'},function () {
+        const state = presenceChannel.presenceState();
+        onlineCount = Object.values(state).reduce(function (sum,items) {
+          return sum + items.length;
+        },0) || 1;
+        updateMetrics();
+      });
+
+    presenceChannel.subscribe(async function (status) {
+      if (status!=='SUBSCRIBED') return;
+      await presenceChannel.track({
+        visitor:clientId,
+        online_at:new Date().toISOString()
+      });
+    });
+  }
+
+  async function loadInitialData() {
+    const results = await Promise.all([
+      supabaseClient.from('wish_feed').select('*').order('created_at',{ascending:false}).limit(SKY_LIMIT),
+      supabaseClient.from('wishes').select('id',{count:'exact',head:true}),
+      supabaseClient.from('wish_lights').select('id',{count:'exact',head:true})
+    ]);
+
+    if (results[0].error) throw results[0].error;
+
+    skyRows = (results[0].data||[]).map(normalizeFeedRow);
+    skyRows.forEach(function (row) { seenWishIds.add(String(row.id)); });
+    totalWishes = results[1].count == null ? skyRows.length : results[1].count;
+    totalLights = results[2].count == null ? 0 : results[2].count;
+
+    renderLivingSky();
+    updateMetrics();
+    await loadFeed(true);
+  }
+
+  function validCard(card) {
+    if (!card || typeof card!=='object') throw new Error('Thiệp không hợp lệ.');
+    const out={};
+    [['to',50],['message',400],['from',50]].forEach(function (item) {
+      out[item[0]] = cleanText(card[item[0]],item[1]);
+      if (!out[item[0]]) throw new Error('Điền đủ thông tin.');
+    });
+    return out;
+  }
+
+  function showCard(card) {
+    $('#preview-to').textContent = 'Gửi ' + card.to + ',';
+    $('#preview-message').textContent = card.message;
+    $('#preview-from').textContent = card.from + '.';
+  }
+
+  function cardLink(card) {
+    const bytes = new TextEncoder().encode(JSON.stringify(card));
+    let binary='';
+    bytes.forEach(function (b) { binary += String.fromCharCode(b); });
+    const url = new URL(location.href);
+    url.hash = 'card=' + btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
+    return url.href;
+  }
+
+  $('#open-letter').addEventListener('click',function () {
+    $('#letter-dialog').showModal();
+  });
+
+  $('#letter-form').addEventListener('submit',function (event) {
+    event.preventDefault();
+    try {
+      const card = validCard({
+        to:$('#recipient').value,
+        message:$('#greeting').value,
+        from:$('#sender').value
+      });
+      showCard(card);
+      $('#share-link').value = cardLink(card);
+      $('#share-result').hidden = false;
+      $('#share-link').select();
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+
+  async function copyShareLink() {
+    try {
+      await navigator.clipboard.writeText($('#share-link').value);
+      toast('Đã sao chép link.');
+    } catch (error) {
+      $('#share-link').select();
+      toast('Nhấn Ctrl+C để sao chép.');
+    }
+  }
+
+  $('#copy-link').addEventListener('click',copyShareLink);
+
+  $('#share-native').addEventListener('click',async function () {
+    if (!navigator.share) return copyShareLink();
+    try {
+      await navigator.share({title:'TRĂNG — lời chúc Trung thu',url:$('#share-link').value});
+    } catch (error) {
+      if (error.name!=='AbortError') copyShareLink();
+    }
+  });
+
+  function readSharedCard() {
+    if (!location.hash.startsWith('#card=')) return;
+    try {
+      let encoded = location.hash.slice(6).replaceAll('-','+').replaceAll('_','/');
+      while (encoded.length%4) encoded += '=';
+      const bytes = Uint8Array.from(atob(encoded),function (c) { return c.charCodeAt(0); });
+      const card = validCard(JSON.parse(new TextDecoder().decode(bytes)));
+      showCard(card);
+      $('#received-to').textContent = 'Gửi ' + card.to + ',';
+      $('#received-message').textContent = card.message;
+      $('#received-from').textContent = card.from;
+      $('#received-dialog').showModal();
+    } catch (error) {
+      toast('Link thiệp không hợp lệ.');
+    }
+  }
+
+  readSharedCard();
+  addEventListener('hashchange',readSharedCard);
+
+  $$('[data-close]').forEach(function (button) {
+    button.addEventListener('click',function () {
+      const dialog = button.closest('dialog');
+      if (dialog) dialog.close();
+    });
+  });
+
+  $$('dialog').forEach(function (dialog) {
+    dialog.addEventListener('click',function (event) {
+      if (event.target!==dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      if (event.clientX<rect.left || event.clientX>rect.right || event.clientY<rect.top || event.clientY>rect.bottom) dialog.close();
+    });
+  });
+
+  let moonPoints = 0;
+  try { moonPoints = Number(localStorage.getItem('trang-moon-points')||0); } catch (error) {}
+  $('#moon-points').textContent = String(moonPoints);
+
+  function scheduleRabbit() {
+    clearTimeout(rabbitTimer);
+    rabbitTimer = setTimeout(showRabbit,10000+Math.random()*14000);
+  }
+
+  function showRabbit() {
+    const rabbit = $('#rabbit-easter');
+    const margin = 70;
+    rabbit.style.left = Math.max(12,margin+Math.random()*Math.max(1,innerWidth-margin*2))+'px';
+    rabbit.style.top = Math.max(80,80+Math.random()*Math.max(1,innerHeight-180))+'px';
+    rabbit.hidden = false;
+    clearTimeout(rabbitHideTimer);
+    rabbitHideTimer = setTimeout(function () {
+      rabbit.hidden = true;
+      scheduleRabbit();
+    },7000);
+  }
+
+  $('#rabbit-easter').addEventListener('click',function () {
+    clearTimeout(rabbitHideTimer);
+    $('#rabbit-easter').hidden = true;
+    moonPoints++;
+    $('#moon-points').textContent = String(moonPoints);
+    try { localStorage.setItem('trang-moon-points',String(moonPoints)); } catch (error) {}
+    burst(parseFloat($('#rabbit-easter').style.left)||cw*.5,parseFloat($('#rabbit-easter').style.top)||ch*.5,24);
+    toast('+1 Moon Point');
+    scheduleRabbit();
+  });
+
+  scheduleRabbit();
+
+  async function initDatabase() {
+    const cfg = window.TRANG_SUPABASE || {};
+    const valid = window.supabase && window.supabase.createClient && cfg.url && cfg.key && !String(cfg.url).includes('YOUR_');
+
+    if (!valid) {
+      setDbState('Chưa kết nối','Thiếu Supabase config',false);
+      return;
+    }
+
+    try {
+      supabaseClient = window.supabase.createClient(cfg.url,cfg.key,{
+        auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}
+      });
+
+      setDbState('Đang đồng bộ','Realtime + Presence',false);
+      await subscribeRealtime();
+      startPresence();
+      await loadInitialData();
+      setDbState('Bầu trời trực tuyến',String(totalWishes) + ' điều ước · ' + String(totalLights) + ' lượt thắp',true);
+    } catch (error) {
+      console.error(error);
+      setDbState('Mất kết nối','Thử tải lại trang',false);
+      toast('Không kết nối được bầu trời chung.');
+    }
+  }
+
+  document.addEventListener('keydown',function (event) {
+    if (event.key==='Escape') closeWishPanel();
+  });
+
+  document.addEventListener('visibilitychange',function () {
+    if (document.hidden) {
+      cancelAnimationFrame(raf);
+      raf=0;
+      if (audio&&musicOn) audio.suspend().catch(function () {});
+    } else {
+      lastFrame=0;
+      startSky();
+      if (audio&&musicOn) audio.resume().catch(function () {});
+    }
+  });
+
+  addEventListener('pagehide',function () {
+    if (presenceChannel && presenceChannel.untrack) presenceChannel.untrack().catch(function () {});
+    if (wishChannel && wishChannel.unsubscribe) wishChannel.unsubscribe();
+    if (reactionChannel && reactionChannel.unsubscribe) reactionChannel.unsubscribe();
+    if (lightChannel && lightChannel.unsubscribe) lightChannel.unsubscribe();
+    if (presenceChannel && presenceChannel.unsubscribe) presenceChannel.unsubscribe();
+  });
 
   initDatabase();
 })();
