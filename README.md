@@ -1,50 +1,54 @@
 # TRĂNG — Hẹn nhau dưới ánh trăng
 
-Website Trung thu dành cho Ngọc Thạch. HTML, CSS, JavaScript thuần; không cần npm, framework, API key hay backend.
+Website Trung thu chạy trực tiếp trên GitHub Pages.
 
-## Chạy ngay
+## Bản nâng cấp Moon Wishes V2
 
-Giải nén và mở `index.html`. Muốn dùng đường dẫn chia sẻ cho người khác, hãy đưa website lên GitHub Pages trước.
+- Responsive mới cho desktop, tablet và mobile.
+- Font stack an toàn hơn cho tiếng Việt, hạn chế lỗi ký tự.
+- Header mobile riêng, sticky khi cuộn.
+- Trăng động, halo, mây, sao, pháo sáng và hiệu ứng "Thắp sáng đêm trăng".
+- Bầu trời điều ước chung: đọc dữ liệu từ Supabase, hiển thị thành đèn lồng, click để xem nội dung.
+- Realtime: người khác vừa gửi điều ước thì đèn mới xuất hiện mà không cần F5.
+- Bảng "Bầu trời của chúng mình" hiển thị điều ước gần nhất và thống kê.
+- Điều ước công khai, không cần đăng nhập.
+- Database chỉ cho public SELECT + INSERT; public không được UPDATE/DELETE.
+- Giới hạn tên 40 ký tự, điều ước 180 ký tự và chống spam submit nhanh ở client.
+- Thiệp Trung thu và link chia sẻ vẫn được giữ lại.
 
-Hoặc dùng máy chủ tĩnh:
+## Files chính
 
-```sh
-python -m http.server 8080
-```
+- `index.html`: giao diện.
+- `style.css`: toàn bộ responsive + animation.
+- `app.js`: UI, realtime, điều ước, thiệp, nhạc và hiệu ứng.
+- `supabase-config.js`: URL + publishable/anon key dùng ở frontend.
+- `database/supabase.sql`: schema + RLS + Realtime cho bảng `wishes`.
+- `assets/moon-festival.webp`: ảnh nền.
 
-Mở `http://localhost:8080`.
+## Database
 
-## Tính năng
+Web là GitHub Pages nên database phải nằm ở dịch vụ ngoài. Bản V2 dùng Supabase PostgreSQL.
 
-- Cảnh Trung thu gốc, tối ưu WebP; bố cục desktop và điện thoại.
-- Sao chuyển động, pháo hoa, thả đèn ước nguyện.
-- Nhạc nền ngũ cung tổng hợp bằng Web Audio; chỉ phát khi bấm bật.
-- Ba mẩu ký ức Trung thu trong hộp thoại.
-- Thiệp cá nhân hóa, sao chép/chia sẻ link; người nhận mở là thấy lời chúc.
-- Giảm chuyển động theo cài đặt hệ thống, điều hướng bàn phím, nhãn biểu mẫu.
-- Dừng hoạt ảnh/nhạc khi ẩn tab; giới hạn số hạt và độ phân giải canvas.
+Chạy `database/supabase.sql` một lần trong Supabase SQL Editor, sau đó điền **Project URL** và **publishable/anon key** vào `supabase-config.js`.
+
+Chỉ dùng publishable/anon key ở frontend. Không bao giờ đưa `service_role` hoặc secret key vào repository.
+
+## Quyền dữ liệu
+
+Khách truy cập có thể:
+
+- xem điều ước;
+- gửi điều ước mới.
+
+Khách truy cập không thể:
+
+- sửa điều ước đã có;
+- xóa điều ước;
+- chạy quyền quản trị database.
+
+Điều ước là nội dung công khai, phù hợp với mục đích web vui/Trung thu.
 
 ## GitHub Pages
 
-Đẩy các file trong thư mục này lên nhánh `main` của repository public. Trong **Settings → Pages**, chọn **Deploy from a branch**, nhánh **main**, thư mục **/(root)** và bấm **Save**. Không cần chạy build. File `.nojekyll` giữ nguyên các tài nguyên tĩnh.
+Deploy từ nhánh `main`, thư mục `/(root)`. File `.nojekyll` giữ nguyên.
 
-Nếu muốn dùng dòng lệnh với GitHub CLI đã đăng nhập, mở PowerShell tại thư mục đã giải nén rồi chạy `./publish.ps1`. Script sẽ tạo repository public tên `trang`, đẩy code, bật Pages và in URL từ API GitHub. Nếu tên đã tồn tại, script dừng để tránh ghi đè repository khác.
-
-## Sửa nội dung
-
-- `index.html`: câu chữ, tiêu đề, phần giới thiệu, footer.
-- `style.css`: màu sắc, responsive, kích thước, chuyển động.
-- `app.js`: lời chúc mẫu, nhạc, pháo hoa, xử lý thiệp và điều ước.
-- `assets/moon-festival.webp`: ảnh nền gốc.
-
-Tất cả đường dẫn tài nguyên là tương đối nên chạy được trong GitHub Pages project path.
-
-## Quyền riêng tư & giới hạn
-
-Điều ước cuối chỉ lưu trong localStorage trên thiết bị, không phải bảng điều ước công khai. Nội dung thiệp nằm trong phần `#card=` của URL; ai có link đều đọc được, không phải mã hóa bảo mật. Trang không gửi lời chúc qua email hay mạng xã hội tự động. Sao chép tự động phụ thuộc quyền clipboard; nếu bị chặn, link sẽ được chọn để sao chép thủ công.
-
-## Assets
-
-Ảnh nền tạo mới bằng OpenAI ImageGen cho dự án; nhạc được tổng hợp cục bộ, không lấy bản thu có bản quyền. Biểu tượng emoji dùng bộ chữ hệ điều hành nên có thể khác nhau giữa các thiết bị. Không có tracker, thư viện CDN, font hay ảnh tải từ bên thứ ba lúc chạy.
-
-Các công cụ WebMCP có sẵn nếu trình duyệt hỗ trợ `document.modelContext`; trình duyệt thông thường vẫn dùng đầy đủ tính năng qua giao diện.
