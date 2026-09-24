@@ -1,54 +1,69 @@
-# TRĂNG — Hẹn nhau dưới ánh trăng
+# TRĂNG — Wish Network V3
 
-Website Trung thu chạy trực tiếp trên GitHub Pages.
+Website Trung thu chạy trực tiếp trên GitHub Pages, dùng Supabase cho bầu trời điều ước công khai và realtime.
 
-## Bản nâng cấp Moon Wishes V2
+## V3
 
-- Responsive mới cho desktop, tablet và mobile.
-- Font stack an toàn hơn cho tiếng Việt, hạn chế lỗi ký tự.
-- Header mobile riêng, sticky khi cuộn.
-- Trăng động, halo, mây, sao, pháo sáng và hiệu ứng "Thắp sáng đêm trăng".
-- Bầu trời điều ước chung: đọc dữ liệu từ Supabase, hiển thị thành đèn lồng, click để xem nội dung.
-- Realtime: người khác vừa gửi điều ước thì đèn mới xuất hiện mà không cần F5.
-- Bảng "Bầu trời của chúng mình" hiển thị điều ước gần nhất và thống kê.
-- Điều ước công khai, không cần đăng nhập.
-- Database chỉ cho public SELECT + INSERT; public không được UPDATE/DELETE.
-- Giới hạn tên 40 ký tự, điều ước 180 ký tự và chống spam submit nhanh ở client.
-- Thiệp Trung thu và link chia sẻ vẫn được giữ lại.
+Giao diện được rebuild theo hướng cinematic / control panel. Các section kể chuyện dài đã bỏ, giữ lại phần có tương tác.
 
-## Files chính
+### Wish Studio
+- Nhập tên + điều ước.
+- Chọn 1 trong 6 chủ đề: gia đình, sức khỏe, tình yêu, ước mơ, may mắn, khác.
+- Chọn 1 trong 5 màu đèn.
+- Preview chiếc đèn ngay khi nhập.
+- Gửi thẳng lên database công khai.
 
-- `index.html`: giao diện.
-- `style.css`: toàn bộ responsive + animation.
-- `app.js`: UI, realtime, điều ước, thiệp, nhạc và hiệu ứng.
-- `supabase-config.js`: URL + publishable/anon key dùng ở frontend.
-- `database/supabase.sql`: schema + RLS + Realtime cho bảng `wishes`.
-- `assets/moon-festival.webp`: ảnh nền.
+### Live Sky
+- Realtime INSERT qua Supabase.
+- Tìm theo tên hoặc nội dung.
+- Filter theo chủ đề.
+- Sort mới nhất / cũ nhất / ngẫu nhiên.
+- Bốc ngẫu nhiên một điều ước.
+- Đèn lồng bay trong sky stage.
+- Click đèn/card để mở chi tiết.
+- Share deep-link cho từng điều ước.
+- Thống kê tổng số, hôm nay, số đang hiển thị.
+- Live ticker cho điều ước mới nhất.
+- Hiện thêm theo từng batch.
+
+### Interaction
+- Light show + particles.
+- Focus mode.
+- Ambient sound tổng hợp bằng Web Audio.
+- Responsive desktop / tablet / mobile.
+- Hỗ trợ prefers-reduced-motion.
+
+### Moon Card
+- Tạo lời chúc riêng.
+- Sinh link chia sẻ.
+- Copy hoặc native share.
+- Người nhận mở link thấy nội dung trong dialog.
 
 ## Database
 
-Web là GitHub Pages nên database phải nằm ở dịch vụ ngoài. Bản V2 dùng Supabase PostgreSQL.
+Project Supabase production đã được nối bằng publishable key trong `supabase-config.js`.
 
-Chạy `database/supabase.sql` một lần trong Supabase SQL Editor, sau đó điền **Project URL** và **publishable/anon key** vào `supabase-config.js`.
+Schema nằm tại:
 
-Chỉ dùng publishable/anon key ở frontend. Không bao giờ đưa `service_role` hoặc secret key vào repository.
+`database/supabase.sql`
 
-## Quyền dữ liệu
+Public role:
+- SELECT ✅
+- INSERT ✅
+- UPDATE ❌
+- DELETE ❌
 
-Khách truy cập có thể:
+Không đưa `service_role` hoặc secret key vào frontend.
 
-- xem điều ước;
-- gửi điều ước mới.
+## Files
 
-Khách truy cập không thể:
+- `index.html` — UI V3.
+- `style.css` — visual system + responsive + animation.
+- `app.js` — Supabase, realtime, filter/search/share/lightshow/card/audio.
+- `supabase-config.js` — Project URL + publishable key.
+- `database/supabase.sql` — schema + RLS + Realtime.
+- `assets/moon-festival.webp` — background asset.
 
-- sửa điều ước đã có;
-- xóa điều ước;
-- chạy quyền quản trị database.
+## Deploy
 
-Điều ước là nội dung công khai, phù hợp với mục đích web vui/Trung thu.
-
-## GitHub Pages
-
-Deploy từ nhánh `main`, thư mục `/(root)`. File `.nojekyll` giữ nguyên.
-
+GitHub Pages deploy từ `main` / `(root)`. Không cần build step.
