@@ -1,54 +1,87 @@
-# TRĂNG — Điều ước dưới ánh trăng
+# TRĂNG — Living Mid-Autumn Sky
 
-Website Trung thu chạy trực tiếp trên GitHub Pages.
+Website Trung thu tương tác chạy trên GitHub Pages + Supabase.
 
-## Bản nâng cấp Moon Wishes V2
+## V4
 
-- Responsive mới cho desktop, tablet và mobile.
-- Font stack an toàn hơn cho tiếng Việt, hạn chế lỗi ký tự.
-- Header mobile riêng, sticky khi cuộn.
-- Trăng động, halo, mây, sao, pháo sáng và hiệu ứng "Thắp sáng đêm trăng".
-- Bầu trời điều ước chung: đọc dữ liệu từ Supabase, hiển thị thành đèn lồng, click để xem nội dung.
-- Realtime: người khác vừa gửi điều ước thì đèn mới xuất hiện mà không cần F5.
-- Bảng "Bầu trời của chúng mình" hiển thị điều ước gần nhất và thống kê.
-- Điều ước công khai, không cần đăng nhập.
-- Database chỉ cho public SELECT + INSERT; public không được UPDATE/DELETE.
-- Giới hạn tên 40 ký tự, điều ước 180 ký tự và chống spam submit nhanh ở client.
-- Thiệp Trung thu và link chia sẻ vẫn được giữ lại.
+V4 thu gọn website về ba trải nghiệm chính:
 
-## Files chính
+- **Living Sky**: bầu trời đèn lồng realtime có chiều sâu, gió, glow và Presence.
+- **Explore**: tìm kiếm, lọc chủ đề, sắp xếp mới nhất / nổi bật / sáng nhất.
+- **Share Card**: tạo thiệp và chia sẻ bằng link.
 
-- `index.html`: giao diện.
-- `style.css`: toàn bộ responsive + animation.
-- `app.js`: UI, realtime, điều ước, thiệp, nhạc và hiệu ứng.
-- `supabase-config.js`: URL + publishable/anon key dùng ở frontend.
-- `database/supabase.sql`: schema + RLS + Realtime cho bảng `wishes`.
-- `assets/moon-festival.webp`: ảnh nền.
+## Wish Creator
 
-## Database
+Người dùng tạo điều ước theo 3 bước:
 
-Web là GitHub Pages nên database phải nằm ở dịch vụ ngoài. Bản V2 dùng Supabase PostgreSQL.
+1. Viết tên + điều ước + chủ đề.
+2. Chọn màu và kiểu đèn.
+3. Preview rồi thả lên bầu trời.
 
-Chạy `database/supabase.sql` một lần trong Supabase SQL Editor, sau đó điền **Project URL** và **publishable/anon key** vào `supabase-config.js`.
+Mỗi wish lưu:
 
-Chỉ dùng publishable/anon key ở frontend. Không bao giờ đưa `service_role` hoặc secret key vào repository.
+- `category`: family / health / love / dream / luck / other
+- `lantern_color`: amber / red / jade / blue / violet
+- `lantern_style`: classic / round / lotus / diamond / tower
 
-## Quyền dữ liệu
+## Realtime
 
-Khách truy cập có thể:
+Supabase Realtime được dùng cho:
 
-- xem điều ước;
-- gửi điều ước mới.
+- điều ước mới;
+- reactions;
+- lượt **Thắp sáng**;
+- Presence để hiển thị số người đang cùng ngắm trăng.
 
-Khách truy cập không thể:
+## Backend
 
-- sửa điều ước đã có;
-- xóa điều ước;
-- chạy quyền quản trị database.
+Các object chính:
 
-Điều ước là nội dung công khai, phù hợp với mục đích web vui/Trung thu.
+- `public.wishes`
+- `public.wish_reactions`
+- `public.wish_lights`
+- `public.wish_reports`
+- `public.wish_feed` — view aggregate dùng `security_invoker = true`
 
-## GitHub Pages
+Frontend đọc `wish_feed` theo trang thay vì tải hàng nghìn reactions về browser để tự cộng.
 
-Deploy từ nhánh `main`, thư mục `/(root)`. File `.nojekyll` giữ nguyên.
+### Quyền public
 
+Khách không cần đăng nhập có thể:
+
+- đọc wish/feed;
+- gửi wish;
+- reaction;
+- thắp sáng một wish;
+- gửi report.
+
+Khách **không có quyền**:
+
+- update/delete wish;
+- đọc danh sách report;
+- truy cập secret/service-role key.
+
+`wish_reports` là write-only đối với public.
+
+## Frontend
+
+- `index.html` — Living Sky + Creator + Explore + panel + thiệp.
+- `style.css` — cinematic UI, pseudo-3D lanterns, responsive.
+- `app.js` — Supabase, Presence, realtime, creator, feed, reactions, lights, reports, audio và effects.
+- `supabase-config.js` — chỉ chứa Project URL + publishable key.
+- `database/supabase.sql` — schema/RLS/view/realtime setup.
+
+## Security
+
+Chỉ dùng Supabase **publishable key** trên GitHub Pages. Không đưa `service_role` hoặc secret key vào repository.
+
+Các bảng public đều bật RLS. View aggregate chạy với quyền caller bằng `security_invoker`.
+
+## Deploy
+
+GitHub Pages deploy từ:
+
+- branch: `main`
+- folder: `/(root)`
+
+File `.nojekyll` giữ nguyên.
