@@ -1,4 +1,4 @@
-# TRĂNG — Hẹn nhau dưới ánh trăng
+# TRĂNG — Điều ước dưới ánh trăng
 
 Website Trung thu chạy trực tiếp trên GitHub Pages.
 
