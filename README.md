@@ -1,54 +1,75 @@
-# TRĂNG — Hẹn nhau dưới ánh trăng
+# TRĂNG — Mid-Autumn Night
 
-Website Trung thu chạy trực tiếp trên GitHub Pages.
+Website Trung thu tương tác chạy trực tiếp trên GitHub Pages + Supabase.
 
-## Bản nâng cấp Moon Wishes V2
+## V3
 
-- Responsive mới cho desktop, tablet và mobile.
-- Font stack an toàn hơn cho tiếng Việt, hạn chế lỗi ký tự.
-- Header mobile riêng, sticky khi cuộn.
-- Trăng động, halo, mây, sao, pháo sáng và hiệu ứng "Thắp sáng đêm trăng".
-- Bầu trời điều ước chung: đọc dữ liệu từ Supabase, hiển thị thành đèn lồng, click để xem nội dung.
-- Realtime: người khác vừa gửi điều ước thì đèn mới xuất hiện mà không cần F5.
-- Bảng "Bầu trời của chúng mình" hiển thị điều ước gần nhất và thống kê.
-- Điều ước công khai, không cần đăng nhập.
-- Database chỉ cho public SELECT + INSERT; public không được UPDATE/DELETE.
-- Giới hạn tên 40 ký tự, điều ước 180 ký tự và chống spam submit nhanh ở client.
-- Thiệp Trung thu và link chia sẻ vẫn được giữ lại.
+Trang được rút gọn lại thành 4 trải nghiệm chính thay vì nhiều section chữ:
 
-## Files chính
+1. **Thả đèn**
+   - 5 màu đèn: amber, jade, rose, violet, blue.
+   - Live preview trước khi gửi.
+   - Điều ước lưu công khai vào Supabase.
+   - Realtime trên tất cả trình duyệt đang mở.
 
-- `index.html`: giao diện.
-- `style.css`: toàn bộ responsive + animation.
-- `app.js`: UI, realtime, điều ước, thiệp, nhạc và hiệu ứng.
-- `supabase-config.js`: URL + publishable/anon key dùng ở frontend.
-- `database/supabase.sql`: schema + RLS + Realtime cho bảng `wishes`.
-- `assets/moon-festival.webp`: ảnh nền.
+2. **Bầu trời chung**
+   - Đèn bay lấy dữ liệu thật từ database.
+   - Click đèn hoặc card để xem điều ước.
+   - Bắt ngẫu nhiên một điều ước.
+   - Thắp sáng/reaction cho điều ước.
+   - Mỗi visitor id chỉ reaction một lần cho mỗi điều ước.
+   - Ticker realtime và thống kê tổng đèn / hôm nay / ánh sáng.
+
+3. **Quẻ trăng**
+   - Bộ bài tương tác.
+   - Kết quả ngẫu nhiên để giải trí.
+   - Không phải bói toán hay dự đoán thực tế.
+
+4. **Thiệp + poster**
+   - Tạo thiệp Trung thu bằng link riêng.
+   - Web Share API khi trình duyệt hỗ trợ.
+   - Tạo poster điều ước 1080×1350 trực tiếp bằng Canvas.
+   - Xuất PNG trên thiết bị.
+
+## Visual / UX
+
+- Responsive desktop, tablet và mobile.
+- Be Vietnam Pro + Noto Serif hỗ trợ tiếng Việt.
+- Cinematic hero, moon core, orbit, glow, star canvas.
+- Mouse parallax, cursor spotlight, 3D tilt.
+- 3 theme màu đêm.
+- Ambient music chỉ bật khi người dùng chủ động.
+- Firework / moonlight interaction.
+- Hỗ trợ prefers-reduced-motion.
 
 ## Database
 
-Web là GitHub Pages nên database phải nằm ở dịch vụ ngoài. Bản V2 dùng Supabase PostgreSQL.
+Schema nằm tại:
 
-Chạy `database/supabase.sql` một lần trong Supabase SQL Editor, sau đó điền **Project URL** và **publishable/anon key** vào `supabase-config.js`.
+`database/supabase.sql`
 
-Chỉ dùng publishable/anon key ở frontend. Không bao giờ đưa `service_role` hoặc secret key vào repository.
+Bảng:
 
-## Quyền dữ liệu
+- `wishes`: tên, nội dung, màu đèn, thời gian.
+- `wish_lights`: reaction công khai cho từng điều ước.
 
-Khách truy cập có thể:
+RLS:
 
-- xem điều ước;
-- gửi điều ước mới.
+- public SELECT: có.
+- public INSERT: có.
+- public UPDATE/DELETE: không.
 
-Khách truy cập không thể:
+Frontend chỉ dùng Supabase **publishable key**. Không đặt service role/secret key trong repository.
 
-- sửa điều ước đã có;
-- xóa điều ước;
-- chạy quyền quản trị database.
+## Files
 
-Điều ước là nội dung công khai, phù hợp với mục đích web vui/Trung thu.
+- `index.html`: cấu trúc UI.
+- `style.css`: toàn bộ visual / responsive.
+- `app.js`: realtime, reaction, poster, oracle, card share, animation, audio.
+- `supabase-config.js`: public project configuration.
+- `database/supabase.sql`: database schema và policies.
+- `assets/moon-festival.webp`: background.
 
-## GitHub Pages
+## Deploy
 
-Deploy từ nhánh `main`, thư mục `/(root)`. File `.nojekyll` giữ nguyên.
-
+GitHub Pages deploy từ `main` / `(root)`.
