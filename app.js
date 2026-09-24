@@ -1,339 +1,932 @@
 'use strict';
 
 (() => {
-  const $ = (s, root = document) => root.querySelector(s);
-  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  const fmt = new Intl.DateTimeFormat('vi-VN', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
-  let toastTimer, supabaseClient = null, wishChannel = null, currentWishes = [], totalWishCount = 0, todayWishCount = 0;
+
+  const CATEGORY = {
+    family: 'Gia đình',
+    health: 'Sức khỏe',
+    love: 'Tình yêu',
+    dream: 'Ước mơ',
+    luck: 'May mắn',
+    other: 'Khác'
+  };
+
+  const COLOR = {
+    amber: '#f7c96f',
+    red: '#f06e55',
+    jade: '#62c7a2',
+    blue: '#6fa8ff',
+    violet: '#ac86ff'
+  };
+
+  const state = {
+    client: null,
+    channel: null,
+    wishes: [],
+    total: 0,
+    today: 0,
+    filter: 'all',
+    search: '',
+    sort: 'latest',
+    visibleLimit: 16,
+    selectedCategory: 'other',
+    selectedColor: 'amber',
+    activeWish: null,
+    audio: null,
+    master: null,
+    musicOn: false,
+    musicTimer: null,
+    nextNote: 0,
+    noteIndex: 0
+  };
+
+  const timeFormat = new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  let toastTimer;
+
+  function clean(value, max = 180) {
+    return String(value ?? '')
+      .replace(/[<>]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max);
+  }
 
   function toast(message) {
-    const box = $('#toast');
-    box.textContent = message;
-    box.classList.add('visible');
+    const el = $('#toast');
+    el.textContent = message;
+    el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => box.classList.remove('visible'), 3500);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
   }
 
-  function cleanText(value, max) {
-    return String(value ?? '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
-  }
-
-  function setDbState(title, detail, online = false) {
-    $('#db-state').textContent = title;
-    $('#db-state-detail').textContent = detail;
-    $('.live-dot')?.classList.toggle('online', online);
-  }
-
-  // Header + mobile navigation.
-  const header = $('#header');
-  addEventListener('scroll', () => header.classList.toggle('is-scrolled', scrollY > 24), {passive:true});
-  const menuButton = $('#menu-button');
-  const mobileNav = $('#mobile-nav');
-  menuButton.addEventListener('click', () => {
-    const open = menuButton.getAttribute('aria-expanded') === 'true';
-    menuButton.setAttribute('aria-expanded', String(!open));
-    mobileNav.hidden = open;
-  });
-  $$('#mobile-nav a').forEach(a => a.addEventListener('click', () => {
-    mobileNav.hidden = true;
-    menuButton.setAttribute('aria-expanded', 'false');
-  }));
-
-  // Dialog helpers.
-  $$('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog')?.close()));
-  $$('dialog').forEach(dialog => dialog.addEventListener('click', e => {
-    if (e.target !== dialog) return;
-    const r = dialog.getBoundingClientRect();
-    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
-  }));
-
-  // Lightweight stars + fireworks.
-  const canvas = $('#sky');
-  const ctx = canvas?.getContext('2d');
-  let w = innerWidth, h = innerHeight, dpr = 1, stars = [], sparks = [], frame = 0, last = 0;
-  function resizeSky() {
-    if (!ctx) return;
-    w = innerWidth; h = innerHeight; dpr = Math.min(devicePixelRatio || 1, 1.5);
-    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    stars = Array.from({length:w < 720 ? 36 : 75}, () => ({
-      x:Math.random()*w,y:Math.random()*h,r:.35+Math.random()*1.1,p:Math.random()*6.28,s:.05+Math.random()*.18
-    }));
-  }
-  function drawSky(time) {
-    frame = 0;
-    if (!ctx || document.hidden) return;
-    const delta = Math.min((time-last)/16.67 || 1, 2); last = time;
-    ctx.clearRect(0,0,w,h);
-    for (const s of stars) {
-      ctx.globalAlpha = reducedMotion.matches ? .22 : .12 + (Math.sin(time*.0008+s.p)+1)*.16;
-      ctx.fillStyle = '#f7d998'; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
-      if (!reducedMotion.matches) { s.y -= s.s*delta; if (s.y < -2) s.y = h+2; }
-    }
-    for (let i=sparks.length-1;i>=0;i--) {
-      const p=sparks[i]; p.x+=p.vx*delta; p.y+=p.vy*delta; p.vy+=.018*delta; p.life-=delta;
-      if (p.life<=0) { sparks.splice(i,1); continue; }
-      ctx.globalAlpha=Math.max(0,p.life/p.max); ctx.fillStyle=p.color;
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
-    }
-    ctx.globalAlpha=1;
-    if (!reducedMotion.matches || sparks.length) frame=requestAnimationFrame(drawSky);
-  }
-  function startSky(){ if (!frame && !document.hidden) frame=requestAnimationFrame(drawSky); }
-  function burst(x,y,count=w<720?45:80){
-    if (!ctx || reducedMotion.matches) return;
-    const colors=['#f2ce82','#e98756','#fff2c7','#acd2c0'];
-    for(let i=0;i<count;i++){
-      const a=Math.PI*2*i/count, speed=.8+Math.random()*3.3, life=42+Math.random()*50;
-      sparks.push({x,y,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,life,max:life,r:.7+Math.random()*1.7,color:colors[i%colors.length]});
-    }
-    if(sparks.length>600)sparks.splice(0,sparks.length-600);
-    startSky();
-  }
-  resizeSky(); startSky();
-  addEventListener('resize', () => {resizeSky();startSky();}, {passive:true});
-  $('#fireworks').addEventListener('click', () => {
-    if (reducedMotion.matches) return toast('Đêm trăng đã sáng lên rồi ✨');
-    [0,300,620,950,1280].forEach((delay,i) => setTimeout(() => burst(w*(.2+Math.random()*.6),h*(.17+Math.random()*.43),55+i*5), delay));
-    document.body.animate([{filter:'brightness(1)'},{filter:'brightness(1.08)'},{filter:'brightness(1)'}],{duration:1700,easing:'ease-out'});
-  });
-
-  // Memory cards.
-  const memories = {
-    lantern:{symbol:'🏮',title:'Rước một trời sao',text:'Ngày bé, chỉ cần một chiếc đèn nhỏ là đủ vui cả tối. Cứ đi theo tiếng trống, theo đám bạn, theo những con đường vàng ánh sáng.\n\nLớn rồi, mong bạn vẫn giữ được một niềm vui bé xíu như thế — không cần lý do, chỉ cần thấy lòng mình sáng lên.'},
-    tea:{symbol:'🥮',title:'Vị của đoàn viên',text:'Chiếc bánh có thể chia làm bốn, làm tám. Nhưng niềm vui thì chẳng hề vơi đi.\n\nRót một chén trà, hỏi nhau một câu “Dạo này ổn không?”. Đôi khi, đó chính là hương vị ngon nhất của mùa Trung thu.'},
-    moon:{symbol:'🌕',title:'Chung một vầng trăng',text:'Nếu tối nay mình chưa thể ngồi cạnh nhau, hãy cùng nhìn lên trời nhé.\n\nCó thể ta đang ở hai nơi rất xa, nhưng vầng trăng trên đầu vẫn là một. Gửi bạn một chút ánh sáng, một chút bình yên, và thật nhiều thương nhớ.'}
-  };
-  $$('[data-memory]').forEach(button => button.addEventListener('click', () => {
-    const m = memories[button.dataset.memory];
-    $('#memory-symbol').textContent=m.symbol; $('#memory-title').textContent=m.title; $('#memory-text').textContent=m.text;
-    $('#memory-dialog').showModal();
-  }));
-
-  // Wish UI.
-  const wishMessage = $('#wish-message');
-  const wishName = $('#wish-name');
-  const wishSubmit = $('#wish-submit');
-  const countWish = () => $('#wish-count').textContent = `${wishMessage.value.length}/180`;
-  wishMessage.addEventListener('input', countWish);
-  $$('[data-wish]').forEach(b => b.addEventListener('click', () => {wishMessage.value=b.dataset.wish;countWish();wishMessage.focus();}));
-  try { wishName.value = cleanText(localStorage.getItem('trang-wish-name') || '', 40); } catch {}
-
-  function formatWishTime(value) {
-    try { return fmt.format(new Date(value)); } catch { return ''; }
-  }
-
-  function makeWishCard(wish) {
-    const article = document.createElement('article');
-    article.className = 'wish-item';
-    article.tabIndex = 0;
-    article.setAttribute('role','button');
-    article.setAttribute('aria-label', `Xem điều ước của ${wish.name}`);
-    const name = document.createElement('p'); name.className='wish-item-name'; name.textContent=wish.name;
-    const message = document.createElement('p'); message.className='wish-item-message'; message.textContent=wish.message;
-    const time = document.createElement('p'); time.className='wish-item-time'; time.textContent=formatWishTime(wish.created_at);
-    article.append(name,message,time);
-    const open = () => openWish(wish);
-    article.addEventListener('click',open);
-    article.addEventListener('keydown',e => {if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
-    return article;
-  }
-
-  function openWish(wish) {
-    $('#wish-dialog-name').textContent = `Điều ước của ${wish.name}`;
-    $('#wish-dialog-message').textContent = `“${wish.message}”`;
-    $('#wish-dialog-time').textContent = formatWishTime(wish.created_at);
-    $('#wish-dialog').showModal();
-  }
-
-  function makeSkyLantern(wish, index) {
-    const button = document.createElement('button');
-    button.type='button'; button.className='sky-lantern';
-    button.style.left = `${6 + ((index*17 + 9) % 84)}%`;
-    button.style.top = `${10 + ((index*23 + 13) % 64)}%`;
-    button.style.setProperty('--dur', `${12 + (index%6)*2.3}s`);
-    button.style.animationDelay = `${-(index%8)*1.3}s`;
-    button.innerHTML = '<span class="lantern-body" aria-hidden="true"></span><span class="lantern-name"></span>';
-    $('.lantern-name',button).textContent = wish.name;
-    button.setAttribute('aria-label',`Xem điều ước của ${wish.name}`);
-    button.addEventListener('click',() => openWish(wish));
-    return button;
-  }
-
-  function renderWishes() {
-    const list=$('#wish-list'), float=$('#floating-wishes'), empty=$('#empty-wishes');
-    list.querySelectorAll('.wish-item').forEach(n=>n.remove());
-    float.replaceChildren();
-    if (!currentWishes.length) {
-      empty.hidden=false;
-    } else {
-      empty.hidden=true;
-      currentWishes.slice(0,18).forEach(wish => list.append(makeWishCard(wish)));
-      currentWishes.slice(0,14).forEach((wish,i) => float.append(makeSkyLantern(wish,i)));
-    }
-    $('#visible-wishes').textContent=String(Math.min(currentWishes.length,18));
-  }
-
-  function updateStats() {
-    $('#total-wishes').textContent = String(totalWishCount || currentWishes.length || 0);
-    $('#hero-wish-count').textContent = String(totalWishCount || currentWishes.length || 0);
-    $('#today-wishes').textContent = String(todayWishCount || 0);
-  }
-
-  function startOfTodayIso() {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    return today.toISOString();
+  function todayIso() {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return date.toISOString();
   }
 
   function isToday(value) {
-    return new Date(value) >= new Date(startOfTodayIso());
+    return new Date(value) >= new Date(todayIso());
   }
 
-  async function loadWishes({quiet=false}={}) {
-    if (!supabaseClient) return;
-    if (!quiet) setDbState('Đang nhìn lên bầu trời…','Đang tải những điều ước gần nhất.',true);
-    const [{data,error,count}, countResult, todayCountResult] = await Promise.all([
-      supabaseClient.from('wishes').select('id,name,message,created_at',{count:'exact'}).order('created_at',{ascending:false}).limit(60),
-      supabaseClient.from('wishes').select('id',{count:'exact',head:true}),
-      supabaseClient.from('wishes').select('id',{count:'exact',head:true}).gte('created_at', startOfTodayIso())
-    ]);
-    if (error) {
-      setDbState('Chưa đọc được bầu trời','Database chưa sẵn sàng hoặc cấu hình chưa đúng.',false);
-      if (!quiet) toast('Chưa tải được điều ước chung.');
+  function formatTime(value) {
+    try {
+      return timeFormat.format(new Date(value));
+    } catch {
+      return '';
+    }
+  }
+
+  function setNetworkStatus(online, label, detail = '') {
+    $('#network-dot').classList.toggle('online', online);
+    $('#network-label').textContent = label;
+    $('#db-mini-status').textContent = detail || `DB: ${label.toLowerCase()}`;
+  }
+
+  // Header / mobile.
+  const topbar = $('#topbar');
+  addEventListener('scroll', () => topbar.classList.toggle('scrolled', scrollY > 24), { passive: true });
+
+  const menuToggle = $('#menu-toggle');
+  const mobileMenu = $('#mobile-menu');
+  menuToggle.addEventListener('click', () => {
+    const open = menuToggle.getAttribute('aria-expanded') === 'true';
+    menuToggle.setAttribute('aria-expanded', String(!open));
+    mobileMenu.hidden = open;
+  });
+  $$('#mobile-menu a').forEach(link => link.addEventListener('click', () => {
+    mobileMenu.hidden = true;
+    menuToggle.setAttribute('aria-expanded', 'false');
+  }));
+
+  // Cursor glow.
+  const cursorGlow = $('#cursor-glow');
+  addEventListener('pointermove', event => {
+    if (event.pointerType === 'touch') return;
+    cursorGlow.style.left = `${event.clientX}px`;
+    cursorGlow.style.top = `${event.clientY}px`;
+  }, { passive: true });
+
+  // Canvas sky.
+  const canvas = $('#sky-canvas');
+  const ctx = canvas.getContext('2d');
+  let width = innerWidth;
+  let height = innerHeight;
+  let dpr = 1;
+  let stars = [];
+  let sparks = [];
+  let raf = 0;
+  let lastFrame = 0;
+
+  function resizeCanvas() {
+    width = innerWidth;
+    height = innerHeight;
+    dpr = Math.min(devicePixelRatio || 1, 1.5);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    stars = Array.from({ length: width < 620 ? 42 : 90 }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      radius: .35 + Math.random() * 1.15,
+      phase: Math.random() * Math.PI * 2,
+      speed: .03 + Math.random() * .12
+    }));
+  }
+
+  function drawCanvas(time) {
+    raf = 0;
+    if (document.hidden) return;
+
+    const delta = Math.min((time - lastFrame) / 16.67 || 1, 2);
+    lastFrame = time;
+    ctx.clearRect(0, 0, width, height);
+
+    for (const star of stars) {
+      ctx.globalAlpha = reducedMotion.matches ? .18 : .08 + (Math.sin(time * .001 + star.phase) + 1) * .12;
+      ctx.fillStyle = '#ffe3a6';
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (!reducedMotion.matches) {
+        star.y -= star.speed * delta;
+        if (star.y < -2) star.y = height + 2;
+      }
+    }
+
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const spark = sparks[i];
+      spark.x += spark.vx * delta;
+      spark.y += spark.vy * delta;
+      spark.vy += .018 * delta;
+      spark.life -= delta;
+
+      if (spark.life <= 0) {
+        sparks.splice(i, 1);
+        continue;
+      }
+
+      ctx.globalAlpha = Math.max(0, spark.life / spark.max);
+      ctx.fillStyle = spark.color;
+      ctx.beginPath();
+      ctx.arc(spark.x, spark.y, spark.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    if (!reducedMotion.matches || sparks.length) raf = requestAnimationFrame(drawCanvas);
+  }
+
+  function startCanvas() {
+    if (!raf && !document.hidden) raf = requestAnimationFrame(drawCanvas);
+  }
+
+  function burst(x, y, count = width < 620 ? 40 : 72, colors = Object.values(COLOR)) {
+    if (reducedMotion.matches) return;
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.PI * 2 * i / count + Math.random() * .08;
+      const speed = .7 + Math.random() * 3.6;
+      const life = 38 + Math.random() * 55;
+
+      sparks.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        max: life,
+        radius: .6 + Math.random() * 1.7,
+        color: colors[i % colors.length]
+      });
+    }
+
+    if (sparks.length > 700) sparks.splice(0, sparks.length - 700);
+    startCanvas();
+  }
+
+  function lightShow() {
+    document.body.classList.remove('lightshow');
+    void document.body.offsetWidth;
+    document.body.classList.add('lightshow');
+    $('#hero-mode').textContent = 'SHOW';
+
+    if (!reducedMotion.matches) {
+      [0, 260, 540, 850, 1180, 1500].forEach((delay, index) => {
+        setTimeout(() => {
+          burst(
+            width * (.16 + Math.random() * .68),
+            height * (.15 + Math.random() * .5),
+            54 + index * 4
+          );
+        }, delay);
+      });
+    }
+
+    setTimeout(() => {
+      document.body.classList.remove('lightshow');
+      $('#hero-mode').textContent = 'LIVE';
+    }, 4200);
+  }
+
+  resizeCanvas();
+  startCanvas();
+  addEventListener('resize', () => {
+    resizeCanvas();
+    startCanvas();
+  }, { passive: true });
+
+  $('#hero-lightshow').addEventListener('click', lightShow);
+  $('#dock-lightshow').addEventListener('click', lightShow);
+
+  $('#dock-focus').addEventListener('click', event => {
+    document.body.classList.toggle('focus-mode');
+    event.currentTarget.classList.toggle('active', document.body.classList.contains('focus-mode'));
+  });
+
+  $('#scroll-top').addEventListener('click', () => scrollTo({ top: 0, behavior: reducedMotion.matches ? 'auto' : 'smooth' }));
+
+  // Studio.
+  const wishName = $('#wish-name');
+  const wishMessage = $('#wish-message');
+  const wishCount = $('#wish-count');
+  const previewLantern = $('#preview-lantern');
+  const previewName = $('#preview-name');
+  const previewMessage = $('#preview-message');
+  const previewCategory = $('#preview-category-label');
+
+  try {
+    wishName.value = clean(localStorage.getItem('trang-wish-name') || '', 40);
+  } catch {}
+
+  function updateStudioPreview() {
+    previewName.textContent = clean(wishName.value, 40) || 'Tên của bạn';
+    previewMessage.textContent = clean(wishMessage.value, 180) || 'Điều ước sẽ xuất hiện ở đây.';
+    previewCategory.textContent = CATEGORY[state.selectedCategory].toUpperCase();
+    previewLantern.className = `preview-lantern ${state.selectedColor}`;
+    wishCount.textContent = `${wishMessage.value.length}/180`;
+  }
+
+  wishName.addEventListener('input', updateStudioPreview);
+  wishMessage.addEventListener('input', updateStudioPreview);
+
+  $$('#category-grid button').forEach(button => button.addEventListener('click', () => {
+    $$('#category-grid button').forEach(item => item.classList.remove('active'));
+    button.classList.add('active');
+    state.selectedCategory = button.dataset.category;
+    updateStudioPreview();
+  }));
+
+  $$('#color-picker button').forEach(button => button.addEventListener('click', () => {
+    $$('#color-picker button').forEach(item => item.classList.remove('active'));
+    button.classList.add('active');
+    state.selectedColor = button.dataset.color;
+    updateStudioPreview();
+  }));
+
+  $$('[data-template]').forEach(button => button.addEventListener('click', () => {
+    wishMessage.value = button.dataset.template;
+    updateStudioPreview();
+    wishMessage.focus();
+  }));
+
+  updateStudioPreview();
+
+  function normalizeWish(raw) {
+    return {
+      id: raw.id,
+      name: clean(raw.name, 40),
+      message: clean(raw.message, 180),
+      category: CATEGORY[raw.category] ? raw.category : 'other',
+      lantern_color: COLOR[raw.lantern_color] ? raw.lantern_color : 'amber',
+      created_at: raw.created_at
+    };
+  }
+
+  async function submitWish() {
+    const name = clean(wishName.value, 40);
+    const message = clean(wishMessage.value, 180);
+
+    if (!name || !message) throw new Error('Điền tên và điều ước trước khi thả đèn.');
+    if (!state.client) throw new Error('Database chưa kết nối.');
+
+    const lastSubmit = Number(sessionStorage.getItem('trang-last-submit') || 0);
+    if (Date.now() - lastSubmit < 8000) throw new Error('Chờ vài giây rồi gửi tiếp.');
+
+    const submit = $('#wish-submit');
+    submit.disabled = true;
+    submit.firstElementChild.textContent = 'ĐANG THẢ ĐÈN…';
+
+    try {
+      const { data, error } = await state.client
+        .from('wishes')
+        .insert({
+          name,
+          message,
+          category: state.selectedCategory,
+          lantern_color: state.selectedColor
+        })
+        .select('id,name,message,category,lantern_color,created_at')
+        .single();
+
+      if (error) throw error;
+
+      sessionStorage.setItem('trang-last-submit', String(Date.now()));
+      try { localStorage.setItem('trang-wish-name', name); } catch {}
+
+      const wish = normalizeWish(data);
+      if (!state.wishes.some(item => String(item.id) === String(wish.id))) {
+        state.wishes.unshift(wish);
+        state.total++;
+        if (isToday(wish.created_at)) state.today++;
+      }
+
+      wishMessage.value = '';
+      updateStudioPreview();
+      renderAll();
+      $('#wish-status').textContent = 'Đã thả đèn lên bầu trời chung.';
+      burst(width * .5, height * .45, 90, [COLOR[state.selectedColor], '#fff1bd']);
+      toast('Điều ước đã lên bầu trời realtime.');
+
+      setTimeout(() => openWish(wish), 650);
+    } finally {
+      submit.disabled = false;
+      submit.firstElementChild.textContent = 'THẢ ĐÈN LÊN BẦU TRỜI';
+    }
+  }
+
+  $('#wish-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    $('#wish-status').textContent = 'Đang gửi…';
+
+    try {
+      await submitWish();
+    } catch (error) {
+      console.error(error);
+      $('#wish-status').textContent = error?.message || 'Không gửi được điều ước.';
+      toast(error?.message || 'Không gửi được điều ước.');
+    }
+  });
+
+  // Filtering / rendering.
+  function filteredWishes() {
+    const term = state.search.toLocaleLowerCase('vi');
+    let list = state.wishes.filter(wish => {
+      const matchesCategory = state.filter === 'all' || wish.category === state.filter;
+      const matchesSearch = !term ||
+        wish.name.toLocaleLowerCase('vi').includes(term) ||
+        wish.message.toLocaleLowerCase('vi').includes(term);
+      return matchesCategory && matchesSearch;
+    });
+
+    if (state.sort === 'oldest') {
+      list = [...list].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    } else if (state.sort === 'random') {
+      list = [...list].sort(() => Math.random() - .5);
+    } else {
+      list = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+
+    return list;
+  }
+
+  function wishTile(wish) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'wish-tile';
+    button.style.setProperty('--tile-color', COLOR[wish.lantern_color]);
+    button.style.setProperty('--tile-glow', `color-mix(in srgb, ${COLOR[wish.lantern_color]} 18%, transparent)`);
+    button.setAttribute('aria-label', `Xem điều ước của ${wish.name}`);
+
+    const top = document.createElement('div');
+    top.className = 'wish-tile-top';
+
+    const category = document.createElement('span');
+    category.className = 'wish-category';
+    category.textContent = CATEGORY[wish.category];
+
+    const dot = document.createElement('span');
+    dot.className = 'wish-color-dot';
+
+    const title = document.createElement('h3');
+    title.textContent = wish.name;
+
+    const message = document.createElement('p');
+    message.textContent = wish.message;
+
+    const footer = document.createElement('footer');
+    const time = document.createElement('span');
+    time.textContent = formatTime(wish.created_at);
+    const id = document.createElement('span');
+    id.textContent = `#${wish.id}`;
+
+    top.append(category, dot);
+    footer.append(time, id);
+    button.append(top, title, message, footer);
+    button.addEventListener('click', () => openWish(wish));
+
+    return button;
+  }
+
+  function floatingLantern(wish, index) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `float-lantern ${wish.lantern_color}`;
+    button.style.left = `${4 + ((index * 19 + Number(wish.id || 0)) % 90)}%`;
+    button.style.top = `${5 + ((index * 29 + Number(wish.id || 0)) % 74)}%`;
+    button.style.setProperty('--duration', `${13 + (index % 7) * 2.2}s`);
+    button.style.animationDelay = `${-(index % 8) * 1.4}s`;
+    button.setAttribute('aria-label', `Mở điều ước của ${wish.name}`);
+    button.addEventListener('click', () => openWish(wish));
+    return button;
+  }
+
+  function updateRibbon() {
+    const track = $('#ribbon-track');
+    const latest = [...state.wishes]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 8);
+
+    track.replaceChildren();
+
+    if (!latest.length) {
+      const span = document.createElement('span');
+      span.textContent = 'Chưa có điều ước.';
+      track.append(span);
       return;
     }
-    currentWishes = Array.isArray(data) ? data.map(w => ({
-      id:w.id,name:cleanText(w.name,40),message:cleanText(w.message,180),created_at:w.created_at
-    })) : [];
-    totalWishCount = countResult.count ?? count ?? currentWishes.length;
-    todayWishCount = todayCountResult.count ?? currentWishes.filter(w => isToday(w.created_at)).length;
-    renderWishes(); updateStats();
-    setDbState('Bầu trời đang trực tuyến',`${totalWishCount} điều ước đang được giữ dưới trăng.`,true);
-  }
 
-  function subscribeWishes() {
-    if (!supabaseClient) return Promise.resolve();
-    wishChannel?.unsubscribe?.();
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = () => {
-        if (!settled) {
-          settled = true;
-          resolve();
-        }
-      };
-      wishChannel = supabaseClient
-        .channel('public-wishes-live')
-        .on('postgres_changes',{event:'INSERT',schema:'public',table:'wishes'}, payload => {
-          const raw=payload.new||{};
-          const wish={id:raw.id,name:cleanText(raw.name,40),message:cleanText(raw.message,180),created_at:raw.created_at};
-          if(!wish.name||!wish.message)return;
-          const exists = currentWishes.some(w=>String(w.id)===String(wish.id));
-          if(!exists){
-            currentWishes.unshift(wish);
-            currentWishes=currentWishes.slice(0,60);
-            totalWishCount++;
-            if(isToday(wish.created_at)) todayWishCount++;
-          }
-          renderWishes();updateStats();burst(w*.72,h*.35,34);
-          if(!exists) toast(`Một chiếc đèn mới của ${wish.name} vừa bay lên ✨`);
-        })
-        .subscribe(status => {
-          if(status==='SUBSCRIBED'){
-            setDbState('Bầu trời đang trực tuyến','Điều ước mới sẽ xuất hiện ngay, không cần tải lại.',true);
-            finish();
-          } else if(status==='CHANNEL_ERROR' || status==='TIMED_OUT' || status==='CLOSED') {
-            finish();
-          }
-        });
-      setTimeout(finish, 5000);
+    const doubled = [...latest, ...latest];
+    doubled.forEach(wish => {
+      const item = document.createElement('span');
+      const name = document.createElement('b');
+      name.textContent = wish.name;
+      item.append(name, document.createTextNode(` · ${wish.message}`));
+      track.append(item);
     });
   }
 
-  async function submitWish(name,message) {
-    name=cleanText(name,40); message=cleanText(message,180);
-    if(!name||!message)throw new Error('Điền tên và điều ước trước khi thả đèn nhé.');
-    if(!supabaseClient)throw new Error('Bầu trời chung chưa được kết nối database.');
-    const last=Number(sessionStorage.getItem('last-wish-submit')||0);
-    if(Date.now()-last<8000)throw new Error('Đợi vài giây rồi thả chiếc đèn tiếp theo nhé.');
-    wishSubmit.disabled=true;
-    wishSubmit.firstChild.textContent='Đang thả đèn… ';
-    try{
-      const {data,error}=await supabaseClient.from('wishes').insert({name,message}).select('id,name,message,created_at').single();
-      if(error)throw error;
-      sessionStorage.setItem('last-wish-submit',String(Date.now()));
-      try{localStorage.setItem('trang-wish-name',name);}catch{}
-      $('#wish-status').textContent=`Đèn của ${name} đã được thả lên bầu trời chung.`;
-      wishMessage.value='';countWish();
-      if(data&&!currentWishes.some(w=>String(w.id)===String(data.id))){
-        currentWishes.unshift(data);
-        currentWishes=currentWishes.slice(0,60);
-        totalWishCount++;
-        if(isToday(data.created_at)) todayWishCount++;
-        renderWishes();
-        updateStats();
+  function renderAll() {
+    const list = filteredWishes();
+    const visible = list.slice(0, state.visibleLimit);
+    const grid = $('#wish-grid');
+    const empty = $('#empty-state');
+    const floating = $('#floating-wishes');
+
+    grid.querySelectorAll('.wish-tile').forEach(node => node.remove());
+    floating.replaceChildren();
+
+    if (!visible.length) {
+      empty.hidden = false;
+    } else {
+      empty.hidden = true;
+      visible.forEach(wish => grid.append(wishTile(wish)));
+      list.slice(0, 20).forEach((wish, index) => floating.append(floatingLantern(wish, index)));
+    }
+
+    $('#filtered-wishes').textContent = String(list.length);
+    $('#hero-visible').textContent = String(Math.min(list.length, 99));
+    $('#total-wishes').textContent = String(state.total);
+    $('#today-wishes').textContent = String(state.today);
+    $('#hero-total').textContent = String(state.total);
+    $('#hero-today').textContent = String(state.today);
+    $('#network-summary').textContent = `Hiển thị ${visible.length}/${list.length} điều ước · realtime`;
+
+    const showMore = $('#show-more');
+    showMore.hidden = visible.length >= list.length;
+
+    updateRibbon();
+  }
+
+  $('#wish-search').addEventListener('input', event => {
+    state.search = clean(event.target.value, 80);
+    state.visibleLimit = 16;
+    renderAll();
+  });
+
+  $$('#filter-chips button').forEach(button => button.addEventListener('click', () => {
+    $$('#filter-chips button').forEach(item => item.classList.remove('active'));
+    button.classList.add('active');
+    state.filter = button.dataset.filter;
+    state.visibleLimit = 16;
+    renderAll();
+  }));
+
+  $('#wish-sort').addEventListener('change', event => {
+    state.sort = event.target.value;
+    renderAll();
+  });
+
+  $('#show-more').addEventListener('click', () => {
+    state.visibleLimit += 12;
+    renderAll();
+  });
+
+  $('#random-wish').addEventListener('click', () => {
+    const list = filteredWishes();
+    if (!list.length) return toast('Không có điều ước phù hợp.');
+    openWish(list[Math.floor(Math.random() * list.length)]);
+  });
+
+  $('#refresh-wishes').addEventListener('click', async () => {
+    await loadWishes();
+    toast('Đã làm mới bầu trời.');
+  });
+
+  // Wish dialog / share.
+  function openWish(wish) {
+    state.activeWish = wish;
+
+    const lantern = $('#dialog-lantern');
+    lantern.className = `dialog-lantern ${wish.lantern_color}`;
+
+    $('#dialog-category').textContent = CATEGORY[wish.category].toUpperCase();
+    $('#dialog-name').textContent = wish.name;
+    $('#dialog-message').textContent = wish.message;
+    $('#dialog-time').textContent = formatTime(wish.created_at);
+    $('#dialog-id').textContent = `WISH #${wish.id}`;
+    $('#wish-dialog').showModal();
+  }
+
+  function wishShareUrl(wish) {
+    const url = new URL(location.href);
+    url.searchParams.set('wish', String(wish.id));
+    url.hash = 'network';
+    return url.href;
+  }
+
+  async function shareWish() {
+    if (!state.activeWish) return;
+    const url = wishShareUrl(state.activeWish);
+    const payload = {
+      title: `Điều ước của ${state.activeWish.name}`,
+      text: state.activeWish.message,
+      url
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(payload);
+        return;
+      } catch (error) {
+        if (error.name === 'AbortError') return;
       }
-      burst(w*.55,h*.42,70);
-      return data;
-    } finally {
-      wishSubmit.disabled=false;
-      wishSubmit.firstChild.textContent='Thả đèn ước nguyện ';
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Đã copy link điều ước.');
+    } catch {
+      toast('Không copy tự động được.');
     }
   }
 
-  $('#wish-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    $('#wish-status').textContent='';
-    try{await submitWish(wishName.value,wishMessage.value);}
-    catch(err){console.error(err);$('#wish-status').textContent=err?.message?.includes('duplicate')?'Điều ước này vừa được gửi rồi.':(err?.message||'Chưa thả được đèn. Thử lại nhé.');}
+  $('#share-wish').addEventListener('click', shareWish);
+  $('#send-spark').addEventListener('click', () => {
+    const color = state.activeWish ? COLOR[state.activeWish.lantern_color] : COLOR.amber;
+    burst(width * .5, height * .45, 70, [color, '#fff2c8']);
+    toast('Đã gửi một chút may mắn ✦');
   });
-  $('#refresh-wishes').addEventListener('click',()=>loadWishes());
 
-  // Supabase bootstrap. Public anon/publishable key is expected; never use service_role here.
-  async function initDatabase() {
-    const cfg = window.TRANG_SUPABASE || {};
-    const valid = cfg.url && cfg.key && !String(cfg.url).includes('YOUR_') && !String(cfg.key).includes('YOUR_');
-    if (!window.supabase?.createClient || !valid) {
-      setDbState('Bầu trời chung chưa được bật','Kết nối Supabase chưa được cấu hình cho bản deploy này.',false);
-      $('#wish-status').textContent='Phần giao diện đã sẵn sàng, nhưng database chung chưa được kết nối.';
+  $$('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog')?.close()));
+  $$('dialog').forEach(dialog => dialog.addEventListener('click', event => {
+    if (event.target !== dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    ) dialog.close();
+  }));
+
+  async function openWishFromUrl() {
+    const id = new URL(location.href).searchParams.get('wish');
+    if (!id) return;
+
+    let wish = state.wishes.find(item => String(item.id) === String(id));
+
+    if (!wish && state.client) {
+      const { data } = await state.client
+        .from('wishes')
+        .select('id,name,message,category,lantern_color,created_at')
+        .eq('id', id)
+        .maybeSingle();
+      if (data) wish = normalizeWish(data);
+    }
+
+    if (wish) setTimeout(() => openWish(wish), 350);
+  }
+
+  // Supabase.
+  async function loadWishes({ quiet = false } = {}) {
+    if (!state.client) return;
+
+    if (!quiet) setNetworkStatus(true, 'SYNCING', 'DB: syncing');
+
+    const [
+      { data, error, count },
+      totalResult,
+      todayResult
+    ] = await Promise.all([
+      state.client
+        .from('wishes')
+        .select('id,name,message,category,lantern_color,created_at', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .limit(150),
+      state.client.from('wishes').select('id', { count: 'exact', head: true }),
+      state.client.from('wishes').select('id', { count: 'exact', head: true }).gte('created_at', todayIso())
+    ]);
+
+    if (error) {
+      console.error(error);
+      setNetworkStatus(false, 'OFFLINE', 'DB: error');
+      if (!quiet) toast('Không tải được dữ liệu.');
       return;
     }
-    try{
-      supabaseClient=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
-      await subscribeWishes();
-      await loadWishes({quiet:true});
-    }catch(err){
-      console.error(err); setDbState('Không kết nối được database','Kiểm tra URL/key hoặc cấu hình RLS.',false);
+
+    state.wishes = Array.isArray(data) ? data.map(normalizeWish) : [];
+    state.total = totalResult.count ?? count ?? state.wishes.length;
+    state.today = todayResult.count ?? state.wishes.filter(item => isToday(item.created_at)).length;
+
+    setNetworkStatus(true, 'LIVE', 'DB: live');
+    renderAll();
+  }
+
+  function subscribeRealtime() {
+    if (!state.client) return Promise.resolve();
+
+    state.channel?.unsubscribe?.();
+
+    return new Promise(resolve => {
+      let resolved = false;
+      const finish = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      };
+
+      state.channel = state.client
+        .channel('trang-wishes-v3')
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'wishes'
+        }, payload => {
+          const wish = normalizeWish(payload.new || {});
+          if (!wish.name || !wish.message) return;
+
+          const exists = state.wishes.some(item => String(item.id) === String(wish.id));
+          if (!exists) {
+            state.wishes.unshift(wish);
+            state.wishes = state.wishes.slice(0, 150);
+            state.total++;
+            if (isToday(wish.created_at)) state.today++;
+            renderAll();
+
+            if (!document.hidden) {
+              burst(width * (.25 + Math.random() * .5), height * (.25 + Math.random() * .35), 34, [COLOR[wish.lantern_color], '#fff2c8']);
+              toast(`${wish.name} vừa thả một chiếc đèn mới.`);
+            }
+          }
+        })
+        .subscribe(status => {
+          if (status === 'SUBSCRIBED') {
+            setNetworkStatus(true, 'LIVE', 'DB: live');
+            finish();
+          } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+            finish();
+          }
+        });
+
+      setTimeout(finish, 4500);
+    });
+  }
+
+  async function initSupabase() {
+    const cfg = window.TRANG_SUPABASE || {};
+    const valid = cfg.url && cfg.key && !String(cfg.url).includes('YOUR_') && !String(cfg.key).includes('YOUR_');
+
+    if (!window.supabase?.createClient || !valid) {
+      setNetworkStatus(false, 'OFFLINE', 'DB: missing config');
+      $('#wish-status').textContent = 'Database chưa được cấu hình.';
+      return;
+    }
+
+    try {
+      state.client = window.supabase.createClient(cfg.url, cfg.key, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false
+        }
+      });
+
+      await subscribeRealtime();
+      await loadWishes({ quiet: true });
+      await openWishFromUrl();
+    } catch (error) {
+      console.error(error);
+      setNetworkStatus(false, 'OFFLINE', 'DB: error');
     }
   }
 
-  // Greeting card link.
-  function validCard(card){
-    if(!card||typeof card!=='object')throw new Error('Thiệp không hợp lệ.');
-    const out={};for(const [k,max] of [['to',50],['message',400],['from',50]]){out[k]=cleanText(card[k],max);if(!out[k])throw new Error('Điền đủ thông tin lời chúc nhé.');}return out;
+  // Moon card.
+  const cardTo = $('#card-to');
+  const cardMessage = $('#card-message');
+  const cardFrom = $('#card-from');
+
+  function updateCardPreview() {
+    $('#preview-card-to').textContent = cardTo.value.trim() ? `Gửi ${clean(cardTo.value, 50)},` : 'Gửi bạn,';
+    $('#preview-card-message').textContent = clean(cardMessage.value, 400) || 'Chúc bạn một mùa Trung thu vui vẻ, bình an và gặp thật nhiều điều tốt đẹp.';
+    $('#preview-card-from').textContent = cardFrom.value.trim() ? `— ${clean(cardFrom.value, 50)}` : '— Một người bạn';
+    $('#share-box').hidden = true;
   }
-  function showPreview(card){$('#preview-to').textContent=`Gửi ${card.to},`;$('#preview-message').textContent=card.message;$('#preview-from').textContent=`Thương mến, ${card.from}.`;}
-  function cardLink(card){const bytes=new TextEncoder().encode(JSON.stringify(card));let binary='';bytes.forEach(b=>binary+=String.fromCharCode(b));const url=new URL(location.href);url.hash='card='+btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');return url.href;}
-  $('#open-letter').addEventListener('click',()=>$('#letter-dialog').showModal());
-  $('#letter-form').addEventListener('submit',e=>{e.preventDefault();try{const card=validCard({to:$('#recipient').value,message:$('#greeting').value,from:$('#sender').value});showPreview(card);$('#share-link').value=cardLink(card);$('#share-result').hidden=false;$('#share-link').select();}catch(err){toast(err.message);}});
-  ['#recipient','#greeting','#sender'].forEach(id=>$(id).addEventListener('input',()=>$('#share-result').hidden=true));
-  async function copyLink(){try{await navigator.clipboard.writeText($('#share-link').value);toast('Đã sao chép link lời chúc.');}catch{$('#share-link').select();toast('Nhấn Ctrl+C để sao chép link nhé.');}}
-  $('#copy-link').addEventListener('click',copyLink);
-  $('#share-native').addEventListener('click',async()=>{if(navigator.share){try{await navigator.share({title:'Một lời chúc dưới trăng',text:'Có một chút ánh trăng gửi đến bạn.',url:$('#share-link').value});}catch(err){if(err.name!=='AbortError')copyLink();}}else copyLink();});
-  function readGreeting(){if(!location.hash.startsWith('#card='))return;try{let s=location.hash.slice(6).replaceAll('-','+').replaceAll('_','/');while(s.length%4)s+='=';const binary=atob(s);const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));const card=validCard(JSON.parse(new TextDecoder().decode(bytes)));showPreview(card);$('#received-to').textContent=`Gửi ${card.to},`;$('#received-message').textContent=card.message;$('#received-from').textContent=`Thương mến, ${card.from}.`;$('#received-dialog').showModal();}catch{toast('Link lời chúc bị thiếu hoặc không hợp lệ.');}}
-  readGreeting();addEventListener('hashchange',readGreeting);
 
-  // Ambient pentatonic synth.
-  let audio=null,master=null,musicOn=false,timer=null,nextNote=0,noteIndex=0;
-  const melody=[0,2,4,7,9,7,4,2,0,4,7,12,9,7,4,2,0,2,7,9,12,9,7,4];
-  function note(freq,start,dur,vol){const o=audio.createOscillator(),g=audio.createGain();o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(.0001,start);g.gain.exponentialRampToValueAtTime(vol,start+.04);g.gain.exponentialRampToValueAtTime(.0001,start+dur);o.connect(g);g.connect(master);o.start(start);o.stop(start+dur+.1);}
-  function schedule(){if(!musicOn||!audio||audio.state!=='running')return;while(nextNote<audio.currentTime+.5){const i=noteIndex++%melody.length;note(261.63*Math.pow(2,melody[i]/12),nextNote,2.1,.18);if(i%4===0)note(130.815,nextNote,3,.08);nextNote+=.68;}}
-  $('#sound').addEventListener('click',async()=>{try{if(!audio){const A=window.AudioContext||window.webkitAudioContext;if(!A)throw new Error('unsupported');audio=new A();master=audio.createGain();master.gain.value=.28;master.connect(audio.destination);}if(musicOn){musicOn=false;clearInterval(timer);await audio.suspend();}else{await audio.resume();musicOn=true;nextNote=audio.currentTime+.08;schedule();timer=setInterval(schedule,220);}$('#sound').setAttribute('aria-pressed',String(musicOn));$('#sound-label').textContent=musicOn?'Tắt nhạc':'Bật nhạc';}catch{toast('Trình duyệt chưa cho phép phát âm thanh.');}});
+  [cardTo, cardMessage, cardFrom].forEach(input => input.addEventListener('input', updateCardPreview));
 
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelAnimationFrame(frame);frame=0;if(audio&&musicOn)audio.suspend().catch(()=>{});}else{last=0;startSky();if(audio&&musicOn)audio.resume().catch(()=>{});}});
-  addEventListener('pagehide',()=>wishChannel?.unsubscribe?.());
+  function validCard(raw) {
+    const card = {
+      to: clean(raw.to, 50),
+      message: clean(raw.message, 400),
+      from: clean(raw.from, 50)
+    };
+    if (!card.to || !card.message || !card.from) throw new Error('Điền đủ thông tin lời chúc.');
+    return card;
+  }
 
-  initDatabase();
+  function encodeCard(card) {
+    const bytes = new TextEncoder().encode(JSON.stringify(card));
+    let binary = '';
+    bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+
+    const encoded = btoa(binary)
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replace(/=+$/g, '');
+
+    const url = new URL(location.href);
+    url.searchParams.delete('wish');
+    url.hash = `card=${encoded}`;
+    return url.href;
+  }
+
+  $('#card-form').addEventListener('submit', event => {
+    event.preventDefault();
+
+    try {
+      const card = validCard({
+        to: cardTo.value,
+        message: cardMessage.value,
+        from: cardFrom.value
+      });
+
+      $('#share-link').value = encodeCard(card);
+      $('#share-box').hidden = false;
+      toast('Link lời chúc đã sẵn sàng.');
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+
+  async function copyCardLink() {
+    try {
+      await navigator.clipboard.writeText($('#share-link').value);
+      toast('Đã copy link lời chúc.');
+    } catch {
+      $('#share-link').select();
+      toast('Link đã được chọn, nhấn Ctrl+C.');
+    }
+  }
+
+  $('#copy-card-link').addEventListener('click', copyCardLink);
+  $('#native-share').addEventListener('click', async () => {
+    const url = $('#share-link').value;
+    if (!url) return;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Moon Card',
+          text: 'Bạn có một lời chúc Trung thu.',
+          url
+        });
+        return;
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+      }
+    }
+
+    copyCardLink();
+  });
+
+  function readCardFromUrl() {
+    if (!location.hash.startsWith('#card=')) return;
+
+    try {
+      let encoded = location.hash.slice(6).replaceAll('-', '+').replaceAll('_', '/');
+      while (encoded.length % 4) encoded += '=';
+
+      const binary = atob(encoded);
+      const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+      const card = validCard(JSON.parse(new TextDecoder().decode(bytes)));
+
+      $('#received-card-to').textContent = `Gửi ${card.to},`;
+      $('#received-card-message').textContent = card.message;
+      $('#received-card-from').textContent = `— ${card.from}`;
+      $('#card-dialog').showModal();
+    } catch {
+      toast('Link lời chúc không hợp lệ.');
+    }
+  }
+
+  readCardFromUrl();
+  addEventListener('hashchange', readCardFromUrl);
+
+  // Ambient sound.
+  const melody = [0, 2, 4, 7, 9, 7, 4, 2, 0, 4, 7, 12, 9, 7, 4, 2];
+
+  function playTone(freq, start, duration, volume) {
+    const oscillator = state.audio.createOscillator();
+    const gain = state.audio.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.value = freq;
+    gain.gain.setValueAtTime(.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume, start + .04);
+    gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
+
+    oscillator.connect(gain);
+    gain.connect(state.master);
+    oscillator.start(start);
+    oscillator.stop(start + duration + .1);
+  }
+
+  function scheduleMusic() {
+    if (!state.musicOn || !state.audio || state.audio.state !== 'running') return;
+
+    while (state.nextNote < state.audio.currentTime + .5) {
+      const index = state.noteIndex++ % melody.length;
+      playTone(261.63 * Math.pow(2, melody[index] / 12), state.nextNote, 2.2, .14);
+      if (index % 4 === 0) playTone(130.815, state.nextNote, 3, .055);
+      state.nextNote += .72;
+    }
+  }
+
+  $('#sound-toggle').addEventListener('click', async event => {
+    try {
+      if (!state.audio) {
+        const Audio = window.AudioContext || window.webkitAudioContext;
+        if (!Audio) throw new Error('Audio unsupported');
+
+        state.audio = new Audio();
+        state.master = state.audio.createGain();
+        state.master.gain.value = .24;
+        state.master.connect(state.audio.destination);
+      }
+
+      if (state.musicOn) {
+        state.musicOn = false;
+        clearInterval(state.musicTimer);
+        await state.audio.suspend();
+      } else {
+        await state.audio.resume();
+        state.musicOn = true;
+        state.nextNote = state.audio.currentTime + .05;
+        scheduleMusic();
+        state.musicTimer = setInterval(scheduleMusic, 220);
+      }
+
+      event.currentTarget.setAttribute('aria-pressed', String(state.musicOn));
+    } catch {
+      toast('Trình duyệt chưa cho phép phát âm thanh.');
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      if (state.audio && state.musicOn) state.audio.suspend().catch(() => {});
+    } else {
+      lastFrame = 0;
+      startCanvas();
+      if (state.audio && state.musicOn) state.audio.resume().catch(() => {});
+    }
+  });
+
+  addEventListener('pagehide', () => state.channel?.unsubscribe?.());
+
+  initSupabase();
 })();
