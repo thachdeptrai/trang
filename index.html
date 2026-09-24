@@ -3,289 +3,309 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#02080d">
+  <meta name="theme-color" content="#02070b">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="TRĂNG — đêm Trung thu tương tác với bầu trời điều ước realtime.">
-  <meta property="og:title" content="TRĂNG — Mid-Autumn Night">
-  <meta property="og:description" content="Thả đèn, xem điều ước realtime, reaction, chơi mini-game và gửi thiệp Trung thu.">
+  <meta name="description" content="TRĂNG — bầu trời Trung thu realtime, nơi mỗi điều ước trở thành một chiếc đèn.">
+  <meta property="og:title" content="TRĂNG — Living Mid-Autumn Sky">
+  <meta property="og:description" content="Tạo đèn riêng, thả điều ước, thắp sáng cho nhau và cùng ngắm một bầu trời realtime.">
   <meta property="og:type" content="website">
-  <title>TRĂNG — Mid-Autumn Night</title>
+  <title>TRĂNG — Living Mid-Autumn Sky</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Noto+Serif+Display:ital,wght@0,500;0,600;1,500;1,600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
   <script src="supabase-config.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body data-scene="gold">
-  <canvas id="sky" aria-hidden="true"></canvas>
+  <canvas id="sky-canvas" aria-hidden="true"></canvas>
   <div class="grain" aria-hidden="true"></div>
-  <div class="cursor-glow" id="cursor-glow" aria-hidden="true"></div>
+  <div class="pointer-light" id="pointer-light" aria-hidden="true"></div>
 
-  <header class="header" id="header">
-    <a href="#home" class="brand" aria-label="TRĂNG">
-      <span class="brand-moon">◐</span>
-      <span>TRĂNG<small>MID-AUTUMN NIGHT</small></span>
+  <header class="site-header" id="site-header">
+    <a class="brand" href="#home" aria-label="TRĂNG">
+      <span class="brand-orb" aria-hidden="true">◐</span>
+      <span>TRĂNG<small>LIVING MID-AUTUMN SKY</small></span>
     </a>
 
     <nav class="desktop-nav" aria-label="Điều hướng">
-      <a href="#wish">Thả đèn</a>
+      <a href="#living-sky">Bầu trời</a>
       <a href="#explore">Khám phá</a>
-      <a href="#play">Trò chơi</a>
       <a href="#letter">Thiệp</a>
     </nav>
 
-    <div class="header-actions">
-      <button class="icon-control" id="scene-toggle" type="button" aria-label="Đổi ánh trăng" title="Đổi ánh trăng">◑</button>
-      <button class="sound-button" id="sound" type="button" aria-pressed="false">
-        <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span id="sound-label">Nhạc</span>
-      </button>
-      <button class="menu-button" id="menu-button" type="button" aria-controls="mobile-nav" aria-expanded="false" aria-label="Menu"><span></span><span></span></button>
+    <div class="header-live">
+      <span class="live-dot online"></span>
+      <b id="header-online">1</b>
+      <small>đang ngắm trăng</small>
     </div>
+
+    <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="mobile-nav" aria-label="Mở menu"><span></span><span></span></button>
   </header>
 
   <nav class="mobile-nav" id="mobile-nav" hidden>
-    <a href="#wish">Thả điều ước</a>
-    <a href="#explore">Bầu trời chung</a>
-    <a href="#play">Khu trò chơi</a>
+    <a href="#living-sky">Bầu trời</a>
+    <a href="#explore">Khám phá điều ước</a>
     <a href="#letter">Tạo thiệp</a>
   </nav>
 
   <main>
     <section class="hero" id="home">
-      <div class="hero-art" aria-hidden="true"></div>
-      <div class="hero-vignette" aria-hidden="true"></div>
+      <div class="hero-photo" aria-hidden="true"></div>
+      <div class="hero-grade" aria-hidden="true"></div>
+
       <div class="hero-moon" id="hero-moon" aria-hidden="true">
-        <span class="orbit orbit-a"></span>
-        <span class="orbit orbit-b"></span>
-        <!-- <span class="moon-core"></span> -->
+        <i class="moon-ring ring-a"></i>
+        <i class="moon-ring ring-b"></i>
+        <span class="moon-surface">
+          <i></i><i></i><i></i><i></i>
+        </span>
       </div>
 
-      <div class="hero-lanterns" aria-hidden="true">
-        <i class="decor-lantern l1"></i><i class="decor-lantern l2"></i><i class="decor-lantern l3"></i>
-      </div>
+      <div class="hero-copy">
+        <div class="live-label"><span class="live-dot online"></span><span id="hero-live-label">REALTIME SKY · ONLINE</span></div>
+        <h1><span>Một bầu trời.</span><em>Hàng nghìn chiếc đèn.</em></h1>
+        <p>Mỗi điều ước có màu, hình dáng và ánh sáng riêng.</p>
 
-      <div class="hero-content">
-        <div class="hero-kicker"><span class="live-dot online"></span><span id="hero-status">Bầu trời realtime đang mở</span></div>
-        <h1><span>TRUNG THU</span><em>không chỉ để ngắm.</em></h1>
-        <p>Thả đèn thật. Đọc điều ước thật. Reaction realtime.</p>
         <div class="hero-actions">
-          <a class="button primary" href="#wish">Thả đèn ngay <span>↗</span></a>
-          <button class="button ghost" id="random-hero" type="button">Bắt một chiếc đèn <span>✦</span></button>
+          <a class="button primary" href="#living-sky">Tạo đèn của bạn <span>↗</span></a>
+          <button class="button glass" id="hero-random" type="button">Bắt một chiếc đèn <span>✦</span></button>
         </div>
 
-        <div class="hero-stats">
-          <div><b id="hero-wish-count">—</b><small>điều ước</small></div>
-          <div><b id="hero-reaction-count">—</b><small>reaction</small></div>
-          <div><b id="hero-today-count">—</b><small>hôm nay</small></div>
+        <div class="hero-metrics">
+          <div><b id="metric-wishes">—</b><small>ĐIỀU ƯỚC</small></div>
+          <div><b id="metric-lights">—</b><small>LƯỢT THẮP SÁNG</small></div>
+          <div><b id="metric-online">1</b><small>ĐANG ONLINE</small></div>
         </div>
       </div>
 
-      <div class="hero-console">
-        <span>MOONLIGHT</span>
-        <button type="button" data-scene="gold" class="scene-dot active" aria-label="Ánh vàng"></button>
-        <button type="button" data-scene="blue" class="scene-dot" aria-label="Ánh xanh"></button>
-        <button type="button" data-scene="red" class="scene-dot" aria-label="Ánh đỏ"></button>
+      <a class="hero-scroll" href="#living-sky"><span>ENTER THE SKY</span><i>↓</i></a>
+    </section>
+
+    <section class="living-section" id="living-sky">
+      <div class="section-titlebar">
+        <div><span class="index">01</span><h2>Living Sky</h2></div>
+        <div class="sky-status"><span class="live-dot" id="db-dot"></span><span><b id="db-state">Đang kết nối</b><small id="db-detail">Supabase realtime</small></span></div>
       </div>
 
-      <button class="ignite" id="fireworks" type="button"><span>✦</span> THẮP SÁNG BẦU TRỜI</button>
-    </section>
-
-    <section class="signal-strip">
-      <span>LIVE WISHES</span><i></i><span>REALTIME REACTIONS</span><i></i><span>MOON AUDIO</span><i></i><span>INTERACTIVE NIGHT</span>
-    </section>
-
-    <section class="wish-zone" id="wish">
-      <div class="section-shell">
-        <div class="section-head compact">
-          <div><span class="section-number">01</span><h2>Thả đèn.</h2></div>
-          <div class="db-pill"><span class="live-dot" id="db-dot"></span><span><b id="db-state">Đang kết nối</b><small id="db-state-detail">Supabase</small></span></div>
+      <div class="living-stage" id="living-stage">
+        <div class="sky-atmosphere" aria-hidden="true">
+          <i class="cloud cloud-one"></i>
+          <i class="cloud cloud-two"></i>
+          <i class="cloud cloud-three"></i>
         </div>
 
-        <div class="wish-stage">
-          <div class="lantern-sky" id="floating-wishes" aria-label="Đèn lồng từ điều ước công khai"></div>
+        <div class="living-lanterns" id="living-lanterns" aria-label="Bầu trời điều ước realtime"></div>
 
-          <form id="wish-form" class="wish-composer">
-            <div class="composer-head"><span>NEW WISH</span><span id="wish-count">0 / 180</span></div>
+        <div class="sky-hud">
+          <span><b id="sky-online">1</b> người đang ở đây</span>
+          <span><b id="sky-latest">0</b> đèn gần nhất</span>
+        </div>
+
+        <form class="creator" id="wish-form">
+          <div class="creator-progress">
+            <span class="creator-step-dot active" data-step-dot="1">1</span>
+            <i></i>
+            <span class="creator-step-dot" data-step-dot="2">2</span>
+            <i></i>
+            <span class="creator-step-dot" data-step-dot="3">3</span>
+          </div>
+
+          <section class="creator-step active" data-step="1">
+            <div class="creator-head"><span>01 / MESSAGE</span><b>Viết điều ước</b></div>
+
             <label for="wish-name">Tên hiển thị</label>
             <input id="wish-name" maxlength="40" autocomplete="name" placeholder="Tên của bạn" required>
-            <label for="wish-message">Điều ước</label>
-            <textarea id="wish-message" maxlength="180" rows="5" placeholder="Viết ngắn gọn điều bạn mong muốn…" required></textarea>
 
-            <div class="quick-wishes">
-              <button type="button" data-wish="Mong gia đình luôn khỏe mạnh và bình an.">Bình an</button>
-              <button type="button" data-wish="Mong công việc và những kế hoạch sắp tới đều thuận lợi.">Thuận lợi</button>
-              <button type="button" data-wish="Mong những người mình thương luôn ở bên nhau thật lâu.">Yêu thương</button>
+            <div class="label-row"><label for="wish-message">Điều ước</label><span id="wish-count">0 / 180</span></div>
+            <textarea id="wish-message" maxlength="180" rows="5" placeholder="Viết điều bạn muốn gửi lên trời…" required></textarea>
+
+            <label>Chủ đề</label>
+            <div class="choice-grid categories" id="category-options">
+              <button type="button" class="choice active" data-category="other">✦ Tất cả</button>
+              <button type="button" class="choice" data-category="family">⌂ Gia đình</button>
+              <button type="button" class="choice" data-category="health">＋ Sức khỏe</button>
+              <button type="button" class="choice" data-category="love">♥ Tình yêu</button>
+              <button type="button" class="choice" data-category="dream">↗ Ước mơ</button>
+              <button type="button" class="choice" data-category="luck">◈ May mắn</button>
             </div>
 
-            <button class="button primary full" id="wish-submit" type="submit">Thả lên trời <span>↑</span></button>
-            <p class="privacy-note">Công khai · không nhập thông tin riêng tư.</p>
+            <button class="button primary full creator-next" type="button" data-next="2">Thiết kế chiếc đèn <span>→</span></button>
+          </section>
+
+          <section class="creator-step" data-step="2">
+            <div class="creator-head"><span>02 / DESIGN</span><b>Chọn chiếc đèn</b></div>
+
+            <div class="lantern-preview-wrap">
+              <div class="lantern-preview color-amber style-classic" id="lantern-preview"><span class="lantern-shell"></span><i class="preview-glow"></i></div>
+              <span id="preview-label">Vàng · Cổ điển</span>
+            </div>
+
+            <label>Màu ánh sáng</label>
+            <div class="color-options" id="color-options">
+              <button type="button" class="color-swatch amber active" data-color="amber" aria-label="Vàng"></button>
+              <button type="button" class="color-swatch red" data-color="red" aria-label="Đỏ"></button>
+              <button type="button" class="color-swatch jade" data-color="jade" aria-label="Ngọc"></button>
+              <button type="button" class="color-swatch blue" data-color="blue" aria-label="Xanh"></button>
+              <button type="button" class="color-swatch violet" data-color="violet" aria-label="Tím"></button>
+            </div>
+
+            <label>Kiểu dáng</label>
+            <div class="style-options" id="style-options">
+              <button type="button" class="style-choice active" data-style="classic"><i class="mini-lantern style-classic"></i><span>Cổ điển</span></button>
+              <button type="button" class="style-choice" data-style="round"><i class="mini-lantern style-round"></i><span>Tròn</span></button>
+              <button type="button" class="style-choice" data-style="lotus"><i class="mini-lantern style-lotus"></i><span>Liên hoa</span></button>
+              <button type="button" class="style-choice" data-style="diamond"><i class="mini-lantern style-diamond"></i><span>Kim cương</span></button>
+              <button type="button" class="style-choice" data-style="tower"><i class="mini-lantern style-tower"></i><span>Tháp</span></button>
+            </div>
+
+            <div class="creator-nav">
+              <button class="button glass creator-back" type="button" data-back="1">← Quay lại</button>
+              <button class="button primary creator-next" type="button" data-next="3">Xem trước →</button>
+            </div>
+          </section>
+
+          <section class="creator-step" data-step="3">
+            <div class="creator-head"><span>03 / LAUNCH</span><b>Sẵn sàng thả</b></div>
+
+            <div class="launch-review">
+              <div class="review-lantern color-amber style-classic" id="review-lantern"><span class="lantern-shell"></span></div>
+              <div>
+                <strong id="review-name">—</strong>
+                <p id="review-message">—</p>
+                <span id="review-meta">—</span>
+              </div>
+            </div>
+
+            <p class="public-note">Điều ước sẽ công khai trên bầu trời chung.</p>
             <p id="wish-status" class="wish-status" role="status" aria-live="polite"></p>
-          </form>
-        </div>
-      </div>
-    </section>
 
-    <section class="observatory" id="explore">
-      <div class="section-shell">
-        <div class="section-head">
-          <div><span class="section-number">02</span><h2>Bầu trời chung.</h2></div>
-          <div class="wall-stats">
-            <span><b id="total-wishes">—</b><small>Tổng</small></span>
-            <span><b id="today-wishes">—</b><small>Hôm nay</small></span>
-            <span><b id="total-reactions">—</b><small>Reaction</small></span>
-          </div>
-        </div>
-
-        <div class="explore-toolbar">
-          <label class="search-box" for="wish-search"><span>⌕</span><input id="wish-search" placeholder="Tìm theo tên hoặc nội dung…"></label>
-          <div class="filter-tabs" role="group" aria-label="Lọc điều ước">
-            <button class="active" type="button" data-filter="latest">Mới nhất</button>
-            <button type="button" data-filter="top">Nổi bật</button>
-            <button type="button" data-filter="today">Hôm nay</button>
-          </div>
-          <button class="shuffle-button" id="random-wish" type="button">Ngẫu nhiên ↝</button>
-        </div>
-
-        <div class="wish-grid" id="wish-list">
-          <div class="empty-wishes" id="empty-wishes"><span>◐</span><p>Chưa có chiếc đèn phù hợp.</p></div>
-        </div>
-
-        <div class="load-row">
-          <button class="button ghost" id="refresh-wishes" type="button">Làm mới dữ liệu ↻</button>
-          <span id="visible-wishes">0 đang hiển thị</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="spotlight">
-      <div class="section-shell">
-        <div class="section-head compact">
-          <div><span class="section-number">03</span><h2>Moon Lab.</h2></div>
-        </div>
-
-        <div class="lab-grid">
-          <article class="fortune-card">
-            <span class="card-code">LUCKY MOON</span>
-            <div class="fortune-orb" id="fortune-orb"><span>◐</span></div>
-            <h3 id="fortune-title">Rút một quẻ trăng</h3>
-            <p id="fortune-text">Một chạm, một lời ngẫu nhiên.</p>
-            <button class="button primary" id="draw-fortune" type="button">Rút quẻ ✦</button>
-          </article>
-
-          <article class="trending-card">
-            <span class="card-code">TRENDING</span>
-            <h3>Đèn được chú ý</h3>
-            <div id="trending-list" class="trending-list">
-              <div class="skeleton-line"></div><div class="skeleton-line short"></div>
+            <div class="creator-nav">
+              <button class="button glass creator-back" type="button" data-back="2">← Chỉnh lại</button>
+              <button class="button primary" id="wish-submit" type="submit">Thả lên trời ↑</button>
             </div>
-          </article>
+          </section>
+        </form>
 
-          <article class="moon-console-card">
-            <span class="card-code">ATMOSPHERE</span>
-            <h3>Điều khiển đêm</h3>
-            <div class="console-control"><span>Ánh trăng</span><input id="moon-intensity" type="range" min="30" max="130" value="88"></div>
-            <div class="console-control"><span>Sao</span><input id="star-density" type="range" min="20" max="120" value="70"></div>
-            <button class="button ghost full" id="cinema-mode" type="button">Cinema mode</button>
-          </article>
-        </div>
+        <div class="launch-layer" id="launch-layer" aria-hidden="true"></div>
       </div>
     </section>
 
-    <section class="game-zone" id="play">
-      <div class="section-shell">
-        <div class="section-head">
-          <div><span class="section-number">04</span><h2>Bắt Thỏ Ngọc.</h2></div>
-          <div class="game-score"><span>SCORE</span><b id="game-score">0</b><span>TIME</span><b id="game-time">15</b></div>
+    <section class="explore-section" id="explore">
+      <div class="section-titlebar explore-title">
+        <div><span class="index">02</span><h2>Explore</h2></div>
+        <p>Đọc, tìm và thắp sáng những điều ước bạn thấy đáng nhớ.</p>
+      </div>
+
+      <div class="explore-tools">
+        <label class="search-field" for="wish-search"><span>⌕</span><input id="wish-search" placeholder="Tìm tên hoặc nội dung…"></label>
+
+        <div class="sort-tabs" id="sort-tabs">
+          <button type="button" class="active" data-sort="latest">Mới nhất</button>
+          <button type="button" data-sort="top">Nổi bật</button>
+          <button type="button" data-sort="lit">Sáng nhất</button>
         </div>
 
-        <div class="game-arena" id="game-arena">
-          <div class="game-grid" aria-hidden="true"></div>
-          <button class="moon-rabbit" id="moon-rabbit" type="button" aria-label="Bắt Thỏ Ngọc">🐇</button>
-          <div class="game-overlay" id="game-overlay">
-            <span class="game-icon">☾</span>
-            <h3>15 giây.</h3>
-            <p>Bắt càng nhiều Thỏ Ngọc càng tốt.</p>
-            <button class="button primary" id="start-game" type="button">Bắt đầu</button>
-          </div>
-        </div>
+        <select id="category-filter" aria-label="Lọc chủ đề">
+          <option value="all">Tất cả chủ đề</option>
+          <option value="family">Gia đình</option>
+          <option value="health">Sức khỏe</option>
+          <option value="love">Tình yêu</option>
+          <option value="dream">Ước mơ</option>
+          <option value="luck">May mắn</option>
+          <option value="other">Khác</option>
+        </select>
+
+        <button class="random-button" id="random-wish" type="button">Ngẫu nhiên ✦</button>
+      </div>
+
+      <div class="feed-grid" id="wish-feed">
+        <div class="feed-loading" id="feed-loading"><i></i><i></i><i></i></div>
+      </div>
+
+      <div class="feed-footer">
+        <span id="feed-count">0 điều ước</span>
+        <button class="button glass" id="load-more" type="button">Xem thêm ↓</button>
       </div>
     </section>
 
-    <section class="memory-deck">
-      <div class="section-shell">
-        <div class="section-head compact">
-          <div><span class="section-number">05</span><h2>Ba biểu tượng.</h2></div>
+    <section class="letter-section" id="letter">
+      <div class="letter-inner">
+        <div class="letter-copy">
+          <span class="index">03</span>
+          <h2>Tạo thiệp.</h2>
+          <p>Viết một lời chúc, tạo link và gửi cho người bạn muốn.</p>
+          <button class="button primary" id="open-letter" type="button">Tạo thiệp ↗</button>
         </div>
-        <div class="symbol-grid">
-          <button class="symbol-card" data-memory="lantern" type="button"><span class="symbol-big">🏮</span><b>Đèn lồng</b><small>Mở</small></button>
-          <button class="symbol-card" data-memory="tea" type="button"><span class="symbol-big">🥮</span><b>Bánh trăng</b><small>Mở</small></button>
-          <button class="symbol-card" data-memory="moon" type="button"><span class="symbol-big">🌕</span><b>Trăng rằm</b><small>Mở</small></button>
+
+        <div class="postcard" id="postcard">
+          <div class="postcard-top"><span>TRĂNG / 2026</span><span>✦</span></div>
+          <p class="postcard-to" id="preview-to">Gửi mọi người,</p>
+          <p class="postcard-message" id="preview-message">Chúc một mùa Trung thu vui, khỏe và gặp nhiều điều thuận lợi.</p>
+          <p class="postcard-from" id="preview-from">Ngọc Thạch.</p>
+          <div class="postcard-bottom"><span>MID-AUTUMN</span><span>☾</span><span>SHARE THE MOON</span></div>
         </div>
       </div>
-    </section>
-
-    <section class="letter-zone" id="letter">
-      <div class="section-shell">
-        <div class="letter-grid">
-          <div>
-            <span class="section-number">06</span>
-            <h2>Tạo thiệp.</h2>
-            <p>Nhập tên, lời chúc, tạo link và gửi ngay.</p>
-            <button class="button primary" id="open-letter" type="button">Tạo link thiệp ↗</button>
-          </div>
-          <div class="postcard" id="postcard">
-            <div class="postcard-top"><span>TRĂNG / 2026</span><span>✦</span></div>
-            <p class="postcard-to" id="preview-to">Gửi mọi người,</p>
-            <p class="postcard-message" id="preview-message">Chúc một mùa Trung thu vui, khỏe và gặp nhiều điều thuận lợi.</p>
-            <p class="postcard-from" id="preview-from">Ngọc Thạch.</p>
-            <div class="postcard-bottom"><span>MID-AUTUMN</span><span>☾</span><span>SHARE THE MOON</span></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="closing">
-      <div class="closing-orb">◐</div>
-      <h2>TRĂNG.</h2>
-      <p id="closing-live">Bầu trời vẫn đang nhận điều ước realtime.</p>
-      <a href="#home">Lên đầu trang ↑</a>
     </section>
   </main>
 
-  <footer>
-    <a class="footer-brand" href="#home">◐ TRĂNG</a>
-    <span>NGỌC THẠCH · MID-AUTUMN NIGHT</span>
-    <span id="footer-status">ONLINE</span>
-  </footer>
+  <aside class="wish-panel" id="wish-panel" aria-hidden="true">
+    <button class="panel-close" id="panel-close" type="button" aria-label="Đóng">×</button>
+    <div class="panel-lantern color-amber style-classic" id="panel-lantern"><span class="lantern-shell"></span><i></i></div>
 
-  <div id="toast" role="status" aria-live="polite"></div>
+    <div class="panel-meta">
+      <span id="panel-category">ĐIỀU ƯỚC</span>
+      <span id="panel-time">—</span>
+    </div>
 
-  <dialog id="memory-dialog">
-    <button class="dialog-close" data-close type="button" aria-label="Đóng">×</button>
-    <span class="dialog-symbol" id="memory-symbol"></span>
-    <span class="card-code">ARCHIVE</span>
-    <h2 id="memory-title"></h2>
-    <p class="dialog-prose" id="memory-text"></p>
-  </dialog>
+    <h3 id="panel-name">—</h3>
+    <p class="panel-message" id="panel-message">—</p>
 
-  <dialog id="wish-dialog">
-    <button class="dialog-close" data-close type="button" aria-label="Đóng">×</button>
-    <div class="dialog-lantern"><i></i></div>
-    <span class="card-code">PUBLIC WISH</span>
-    <h2 id="wish-dialog-name"></h2>
-    <p class="dialog-prose wish-dialog-message" id="wish-dialog-message"></p>
-    <p class="received-from" id="wish-dialog-time"></p>
-    <div class="reaction-bar" id="reaction-bar">
+    <div class="panel-reactions" id="panel-reactions">
       <button type="button" data-reaction="heart">♥ <span>0</span></button>
       <button type="button" data-reaction="star">✦ <span>0</span></button>
       <button type="button" data-reaction="moon">☾ <span>0</span></button>
     </div>
-  </dialog>
+
+    <button class="light-wish-button" id="light-wish" type="button">
+      <span class="light-icon">🏮</span>
+      <span><b>Thắp sáng điều ước</b><small><span id="panel-light-count">0</span> người đã thắp</small></span>
+    </button>
+
+    <button class="report-link" id="report-wish" type="button">Báo cáo nội dung</button>
+  </aside>
+  <div class="panel-backdrop" id="panel-backdrop" hidden></div>
+
+  <div class="control-dock" id="control-dock">
+    <button id="dock-theme" type="button" aria-label="Đổi màu đêm">◐</button>
+    <button id="sound" type="button" aria-pressed="false" aria-label="Bật nhạc"><span class="sound-bars"><i></i><i></i><i></i></span></button>
+    <button id="cinema-mode" type="button" aria-label="Cinema mode">⛶</button>
+    <button id="dock-settings" type="button" aria-label="Điều chỉnh ánh sáng">☼</button>
+    <span class="moon-points" title="Moon points"><i>☾</i><b id="moon-points">0</b></span>
+
+    <div class="dock-popover" id="dock-popover" hidden>
+      <label>Ánh trăng <input id="moon-intensity" type="range" min="30" max="130" value="92"></label>
+      <label>Sao <input id="star-density" type="range" min="20" max="120" value="72"></label>
+    </div>
+  </div>
+
+  <button class="rabbit-easter" id="rabbit-easter" type="button" aria-label="Bắt Thỏ Ngọc" hidden>🐇</button>
+
+  <footer>
+    <a href="#home">◐ TRĂNG</a>
+    <span><b id="footer-online">1</b> ONLINE</span>
+    <span>NGỌC THẠCH · 2026</span>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <dialog id="letter-dialog">
     <button class="dialog-close" data-close type="button" aria-label="Đóng">×</button>
-    <span class="card-code">SHARE CARD</span>
+    <span class="dialog-code">SHARE CARD</span>
     <h2>Tạo thiệp Trung thu</h2>
     <form id="letter-form">
       <label for="recipient">Gửi đến</label>
@@ -299,8 +319,8 @@
         <label for="share-link">Link</label>
         <input id="share-link" readonly>
         <div class="share-actions">
-          <button class="button ghost" type="button" id="copy-link">Sao chép</button>
-          <button class="button ghost" type="button" id="share-native">Chia sẻ</button>
+          <button class="button glass" type="button" id="copy-link">Sao chép</button>
+          <button class="button glass" type="button" id="share-native">Chia sẻ</button>
         </div>
       </div>
     </form>
@@ -308,13 +328,31 @@
 
   <dialog id="received-dialog">
     <button class="dialog-close" data-close type="button" aria-label="Đóng">×</button>
-    <span class="dialog-symbol">💌</span>
-    <span class="card-code">MOON MAIL</span>
+    <span class="received-icon">💌</span>
+    <span class="dialog-code">MOON MAIL</span>
     <h2 id="received-to"></h2>
-    <p class="dialog-prose" id="received-message"></p>
+    <p class="received-message" id="received-message"></p>
     <p class="received-from" id="received-from"></p>
   </dialog>
 
-  <noscript><div class="noscript">Cần JavaScript để sử dụng trải nghiệm tương tác.</div></noscript>
+  <dialog id="report-dialog">
+    <button class="dialog-close" data-close type="button" aria-label="Đóng">×</button>
+    <span class="dialog-code">REPORT</span>
+    <h2>Báo cáo điều ước</h2>
+    <form id="report-form">
+      <label for="report-reason">Lý do</label>
+      <select id="report-reason">
+        <option value="spam">Spam</option>
+        <option value="abuse">Nội dung không phù hợp</option>
+        <option value="personal_info">Lộ thông tin cá nhân</option>
+        <option value="other">Khác</option>
+      </select>
+      <label for="report-detail">Ghi chú (không bắt buộc)</label>
+      <textarea id="report-detail" maxlength="240" rows="3" placeholder="Mô tả ngắn…"></textarea>
+      <button class="button primary full" type="submit">Gửi báo cáo</button>
+    </form>
+  </dialog>
+
+  <noscript><div class="noscript">Cần JavaScript để dùng bầu trời realtime.</div></noscript>
 </body>
 </html>
