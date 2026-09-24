@@ -57,7 +57,7 @@
   const clientId = getClientId();
 
   const categoryLabels = {
-    other:'TẤT CẢ',
+    other:'KHÁC',
     family:'GIA ĐÌNH',
     health:'SỨC KHỎE',
     love:'TÌNH YÊU',
