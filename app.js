@@ -7,6 +7,7 @@
   const timeFmt = new Intl.DateTimeFormat('vi-VN', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
   const PAGE_SIZE = 18;
   const SKY_LIMIT = 36;
+  const compactSky = matchMedia('(max-width:720px)');
 
   let supabaseClient = null;
   let wishChannel = null;
@@ -93,12 +94,13 @@
 
   function updateMetrics() {
     $('#metric-wishes').textContent = String(totalWishes);
+    if ($('#db-dot').classList.contains('online')) $('#db-detail').textContent = totalWishes+' điều ước';
     $('#metric-lights').textContent = String(totalLights);
     $('#metric-online').textContent = String(onlineCount);
     $('#header-online').textContent = String(onlineCount);
     $('#sky-online').textContent = String(onlineCount);
     $('#footer-online').textContent = String(onlineCount);
-    $('#sky-latest').textContent = String(Math.min(skyRows.length, SKY_LIMIT));
+    $('#sky-latest').textContent = String(Math.min(skyRows.length, compactSky.matches ? 9 : SKY_LIMIT));
   }
 
   const header = $('#site-header');
@@ -316,8 +318,10 @@
 
   function seeded(id,salt) {
     salt = salt || 0;
-    const x = (Number(id)*9301 + 49297 + salt*233) % 233280;
-    return x / 233280;
+    let x = (Number(id) ^ Math.imul(salt+1, 2654435761)) >>> 0;
+    x = Math.imul(x ^ (x >>> 16), 2246822507);
+    x = Math.imul(x ^ (x >>> 13), 3266489909);
+    return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
   }
 
   function createLantern(row,index,interactive) {
@@ -328,12 +332,13 @@
     if ((Number(row.light_count)||0) > 0) button.classList.add('is-lit');
 
     const depthSeed = seeded(row.id,index+3);
-    const scale = .48 + depthSeed*.78;
+    const scale = compactSky.matches ? .64 + depthSeed*.16 : .62 + depthSeed*.42;
     const blur = Math.max(0,(1-scale)*1.5);
     const opacity = .48 + scale*.42;
 
-    button.style.setProperty('--left', (4 + seeded(row.id,1)*58) + '%');
-    button.style.setProperty('--top', (6 + seeded(row.id,2)*76) + '%');
+    const cols=compactSky.matches?3:6;
+    button.style.setProperty('--left', (7+(index%cols)*(compactSky.matches?29:9.5)+seeded(row.id,1)*2) + '%');
+    button.style.setProperty('--top', (9+Math.floor(index/cols)*(compactSky.matches?29:13)+seeded(row.id,2)*3) + '%');
     button.style.setProperty('--scale', scale.toFixed(2));
     button.style.setProperty('--blur', blur.toFixed(2)+'px');
     button.style.setProperty('--opacity', opacity.toFixed(2));
@@ -341,7 +346,7 @@
     button.style.setProperty('--z', String(Math.round(scale*30)));
     button.style.setProperty('--duration', (12+seeded(row.id,4)*10).toFixed(1)+'s');
     button.style.setProperty('--delay', (-seeded(row.id,5)*9).toFixed(1)+'s');
-    button.style.setProperty('--drift', (-24+seeded(row.id,6)*52).toFixed(0)+'px');
+    button.style.setProperty('--drift', ((compactSky.matches?-6:-12)+seeded(row.id,6)*(compactSky.matches?12:26)).toFixed(0)+'px');
 
     button.innerHTML = '<span class="lantern-shell" aria-hidden="true"></span><span class="lantern-name"></span>';
     $('.lantern-name',button).textContent = row.name;
@@ -353,11 +358,13 @@
   function renderLivingSky() {
     const host = $('#living-lanterns');
     host.replaceChildren();
-    skyRows.slice(0,SKY_LIMIT).forEach(function (row,index) {
+    skyRows.slice(0,compactSky.matches?9:SKY_LIMIT).forEach(function (row,index) {
       host.append(createLantern(row,index,true));
     });
     updateMetrics();
   }
+
+  compactSky.addEventListener('change',renderLivingSky);
 
   const wishName = $('#wish-name');
   const wishMessage = $('#wish-message');
@@ -932,7 +939,7 @@
     if (!card || typeof card!=='object') throw new Error('Thiệp không hợp lệ.');
     const out={};
     [['to',50],['message',400],['from',50]].forEach(function (item) {
-      out[item[0]] = cleanText(card[item[0]],item[1]);
+      out[item[0]] = item[0]==='message' ? String(card.message||'').replace(/[<>]/g,'').replace(/\r\n?/g,'\n').split('\n').map(line=>line.replace(/[^\S\n]+/g,' ').trim()).join('\n').trim().slice(0,400) : cleanText(card[item[0]],item[1]);
       if (!out[item[0]]) throw new Error('Điền đủ thông tin.');
     });
     return out;

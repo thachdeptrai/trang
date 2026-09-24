@@ -23,6 +23,7 @@
   async function busy(button,task,target){if(button.disabled)return;button.disabled=true;try{await task();}catch(e){status(target,errorText(e));}finally{button.disabled=false;}}
   function goTab(name){$$('[data-my-tab]').forEach(b=>{const selected=b.dataset.myTab===name;b.setAttribute('aria-selected',String(selected));b.tabIndex=selected?0:-1;$('#my-'+b.dataset.myTab).hidden=!selected;});}
   $$('[data-my-tab]').forEach((b,i,all)=>{b.addEventListener('click',()=>goTab(b.dataset.myTab));b.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const n=e.key==='Home'?0:e.key==='End'?all.length-1:(i+(e.key==='ArrowRight'?1:-1)+all.length)%all.length;all[n].focus();goTab(all[n].dataset.myTab);});});
+  $$('#game-result a[href="#my-moon"]').forEach(a=>a.addEventListener('click',()=>goTab('collection')));
   const items=[{id:'plain',name:'Ánh trăng nguyên bản',cost:0,desc:'Chiếc đèn đầu tiên, luôn có sẵn.'},{id:'stardust',name:'Bụi sao',cost:20,desc:'Viền sao vàng ôm lấy chiếc đèn.'},{id:'aurora',name:'Cực quang',cost:40,desc:'Sắc ngọc và tím của trời phương Bắc.'},{id:'royal',name:'Kim nguyệt',cost:60,desc:'Viền vàng kép và quầng sáng ấm.'}];
   function empty(host,text,link){host.replaceChildren();const box=document.createElement('div');box.className='empty-v5';box.textContent=text;if(link){const a=document.createElement('a');a.href=link;a.textContent=' Khám phá bầu trời →';box.append(a);}host.append(box);}
   function renderProfile(){
