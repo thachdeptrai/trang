@@ -519,52 +519,23 @@
     return true;
   }
 
+  let submittingWish = false;
   $('#wish-form').addEventListener('submit', async function (event) {
     event.preventDefault();
-    if (!validateCreatorFirstStep()) return;
-    if (!supabaseClient) return toast('Database chưa sẵn sàng.');
-
-    const lastSubmit = Number(sessionStorage.getItem('trang-last-wish') || 0);
-    if (Date.now()-lastSubmit < 7000) return toast('Đợi vài giây rồi thả chiếc đèn tiếp theo.');
-
-    const name = cleanText(wishName.value,40);
-    const message = cleanText(wishMessage.value,180);
-    const submit = $('#wish-submit');
-    submit.disabled = true;
-    submit.textContent = 'Đang thả…';
-
-    const result = await supabaseClient
-      .from('wishes')
-      .insert({
-        name:name,
-        message:message,
-        category:selectedCategory,
-        lantern_color:selectedColor,
-        lantern_style:selectedStyle
-      })
-      .select('id,name,message,created_at,category,lantern_color,lantern_style')
-      .single();
-
-    submit.disabled = false;
-    submit.textContent = 'Thả lên trời ↑';
-
-    if (result.error) {
-      console.error(result.error);
-      $('#wish-status').textContent = 'Chưa thả được. Thử lại nhé.';
-      return;
-    }
-
-    sessionStorage.setItem('trang-last-wish',String(Date.now()));
-    try { localStorage.setItem('trang-wish-name',name); } catch (error) {}
-    $('#wish-status').textContent = 'Đèn đã bay lên bầu trời chung.';
-    launchAnimation();
-    applyNewWish(result.data);
-    burst(cw*.44,ch*.42,72);
-
-    setTimeout(function () {
-      resetCreator();
-      loadFeed(true);
-    },1200);
+    if (submittingWish || !validateCreatorFirstStep()) return;
+    if (creatorStep !== 3) { setCreatorStep(2); return; }
+    const submit = $('#wish-submit'); submittingWish = true; submit.disabled = true;
+    submit.textContent = 'Đang lưu điều ước…';
+    try {
+      if (!window.TRANG_V5) throw new Error('Trang chưa sẵn sàng. Hãy thử lại.');
+      const row = await window.TRANG_V5.createWish({name:cleanText(wishName.value,40),message:cleanText(wishMessage.value,180),category:selectedCategory,color:selectedColor,style:selectedStyle});
+      applyNewWish(row); launchAnimation(); burst(cw*.44,ch*.42,72);
+      resetCreator(); window.TRANG_V5.clearDraft();
+      $('#wish-status').textContent = '';
+      toast('Đã lưu đèn vào bầu trời chung và Góc của tôi.');
+      await loadFeed(true);
+    } catch(error) { $('#wish-status').textContent = error.message || 'Chưa lưu được. Bản nháp vẫn còn.'; }
+    finally {submittingWish=false;submit.disabled=false;submit.textContent='Thả lên trời ↑';}
   });
 
   function makeFeedCard(row) {
@@ -631,9 +602,11 @@
     $('#load-more').hidden = !feedHasMore;
   }
 
+  let feedRequest=0, feedBusy=false;
   async function loadFeed(reset) {
     reset = Boolean(reset);
-    if (!supabaseClient) return;
+    if (!supabaseClient || (feedBusy && !reset)) return;
+    const request=++feedRequest; feedBusy=true; $('#load-more').disabled=true;
 
     if (reset) {
       feedPage = 0;
@@ -657,16 +630,20 @@
       query = query.order('created_at',{ascending:false});
     }
 
-    const result = await query.range(from,to);
+    let result;
+    try { result = await query.range(from,to); } catch(error) { result={error}; }
+    if(request!==feedRequest)return;
+    feedBusy=false;$('#load-more').disabled=false;
 
     if (result.error) {
       console.error(result.error);
-      toast('Chưa tải được bầu trời.');
+      toast('Chưa tải được bầu trời. Bấm Xem thêm để thử lại.');
+      if(reset){$('#wish-feed').textContent='Kết nối tạm gián đoạn. Thử tải lại danh sách nhé.';$('#load-more').hidden=false;}
       return;
     }
 
     const rows = (result.data||[]).map(normalizeFeedRow);
-    feedRows = reset ? rows : feedRows.concat(rows);
+    feedRows = reset ? rows : Array.from(new Map(feedRows.concat(rows).map(row=>[String(row.id),row])).values());
     feedTotal = result.count == null ? feedRows.length : result.count;
     feedHasMore = feedRows.length < feedTotal && rows.length === PAGE_SIZE;
     feedPage++;
@@ -717,7 +694,9 @@
     });
   }
 
+  let panelRequest=0, panelReturnFocus=null;
   async function openWishPanel(row) {
+    const request=++panelRequest; panelReturnFocus=document.activeElement;
     activeWish = normalizeFeedRow(row);
 
     const lantern = $('#panel-lantern');
@@ -731,13 +710,17 @@
     syncPanelCounts(activeWish);
 
     $$('#panel-reactions [data-reaction]').forEach(function (button) {
-      button.classList.remove('done');
+      button.classList.remove('done');button.disabled=true;
     });
 
+    $('#light-wish').disabled=true;
     $('#light-wish').classList.remove('done');
     $('#light-wish b').textContent = 'Thắp sáng điều ước';
 
+    $('#wish-panel').inert=false;
     $('#wish-panel').classList.add('open');
+    $('#panel-close').focus();
+    document.dispatchEvent(new CustomEvent('trang:panel',{detail:activeWish}));
     $('#wish-panel').setAttribute('aria-hidden','false');
     $('#panel-backdrop').hidden = false;
 
@@ -748,6 +731,8 @@
       supabaseClient.from('wish_lights').select('id').eq('wish_id',activeWish.id).eq('visitor_id',clientId).limit(1)
     ]);
 
+    if(request!==panelRequest)return;
+    $$('#panel-reactions button,#light-wish').forEach(b=>b.disabled=false);
     const mine = new Set((states[0].data||[]).map(function (x) { return x.reaction; }));
     $$('#panel-reactions [data-reaction]').forEach(function (button) {
       button.classList.toggle('done',mine.has(button.dataset.reaction));
@@ -760,6 +745,9 @@
   }
 
   function closeWishPanel() {
+    panelRequest++;
+    if($('#wish-panel').classList.contains('open') && panelReturnFocus?.isConnected)panelReturnFocus.focus();
+    $('#wish-panel').inert=true;
     $('#wish-panel').classList.remove('open');
     $('#wish-panel').setAttribute('aria-hidden','true');
     $('#panel-backdrop').hidden = true;
@@ -791,72 +779,30 @@
     },140));
   }
 
-  async function addReaction(type) {
-    if (!activeWish || !supabaseClient || ['heart','star','moon'].indexOf(type)===-1) return;
-    const button = $('#panel-reactions [data-reaction="' + type + '"]');
-    if (button.classList.contains('done')) return toast('Reaction này đã được gửi.');
-
-    const result = await supabaseClient
-      .from('wish_reactions')
-      .insert({wish_id:activeWish.id,client_id:clientId,reaction:type})
-      .select('id,wish_id,client_id,reaction,created_at')
-      .single();
-
-    if (result.error) {
-      if (result.error.code==='23505') {
-        button.classList.add('done');
-        return toast('Reaction này đã được gửi.');
+  const pendingInteractions=new Set();
+  async function addInteraction(type) {
+    if(!activeWish||!supabaseClient)return;
+    const id=activeWish.id,request=panelRequest,isLight=type==='light',key=id+':'+type;
+    const button=isLight?$('#light-wish'):$('#panel-reactions [data-reaction="'+type+'"]');
+    if(!button||button.disabled||button.classList.contains('done')||pendingInteractions.has(key))return;
+    pendingInteractions.add(key);button.disabled=true;
+    try{
+      const payload=isLight?{wish_id:id,visitor_id:clientId}:{wish_id:id,client_id:clientId,reaction:type};
+      const result=await supabaseClient.from(isLight?'wish_lights':'wish_reactions').insert(payload).select('id').single();
+      if(result.error&&result.error.code!=='23505')throw result.error;
+      if(request===panelRequest){button.classList.add('done');if(isLight)$('#light-wish b').textContent='Đã thắp sáng';}
+      if(!result.error&&result.data){
+        if(isLight&&!seenLightIds.has(String(result.data.id))){seenLightIds.add(String(result.data.id));totalLights++;updateMetrics();}
+        if(!isLight)seenReactionIds.add(String(result.data.id));
+        burst(cw*.74,ch*.46,isLight?34:22);
       }
-      console.error(result.error);
-      return toast('Chưa gửi được reaction.');
-    }
-
-    button.classList.add('done');
-    if (result.data && result.data.id) seenReactionIds.add(String(result.data.id));
-    scheduleWishRefresh(activeWish.id);
-    burst(cw*.76,ch*.42,22);
+      scheduleWishRefresh(id);
+      if(isLight)toast('Chiếc đèn sáng hơn rồi ✦');
+    }catch(error){toast(isLight?'Chưa thắp sáng được. Hãy thử lại.':'Chưa gửi được cảm xúc. Hãy thử lại.');}
+    finally{pendingInteractions.delete(key);if(request===panelRequest)button.disabled=false;}
   }
-
-  $$('#panel-reactions [data-reaction]').forEach(function (button) {
-    button.addEventListener('click',function () {
-      addReaction(button.dataset.reaction);
-    });
-  });
-
-  $('#light-wish').addEventListener('click', async function () {
-    if (!activeWish || !supabaseClient) return;
-    const button = $('#light-wish');
-    if (button.classList.contains('done')) return toast('Bạn đã thắp sáng chiếc đèn này.');
-
-    const result = await supabaseClient
-      .from('wish_lights')
-      .insert({wish_id:activeWish.id,visitor_id:clientId})
-      .select('id,wish_id,visitor_id,created_at')
-      .single();
-
-    if (result.error) {
-      if (result.error.code==='23505') {
-        button.classList.add('done');
-        $('#light-wish b').textContent = 'Đã thắp sáng';
-        return toast('Bạn đã thắp sáng chiếc đèn này.');
-      }
-      console.error(result.error);
-      return toast('Chưa thắp sáng được.');
-    }
-
-    button.classList.add('done');
-    $('#light-wish b').textContent = 'Đã thắp sáng';
-
-    if (result.data && result.data.id && !seenLightIds.has(String(result.data.id))) {
-      seenLightIds.add(String(result.data.id));
-      totalLights++;
-      updateMetrics();
-    }
-
-    scheduleWishRefresh(activeWish.id);
-    burst(cw*.74,ch*.46,34);
-    toast('Chiếc đèn sáng hơn rồi ✦');
-  });
+  $$('#panel-reactions [data-reaction]').forEach(button=>button.addEventListener('click',()=>addInteraction(button.dataset.reaction)));
+  $('#light-wish').addEventListener('click',()=>addInteraction('light'));
 
   $('#report-wish').addEventListener('click',function () {
     if (!activeWish) return;
@@ -888,6 +834,7 @@
     toast('Đã gửi báo cáo.');
   });
 
+  const realtimeStates=new Map();
   function waitSubscribe(channel) {
     return new Promise(function (resolve) {
       let done = false;
@@ -898,6 +845,9 @@
         }
       }
       channel.subscribe(function (status) {
+        realtimeStates.set(channel.topic,status);
+        const good=[...realtimeStates.values()].every(x=>x==='SUBSCRIBED');
+        setDbState(good?'Đang đồng bộ trực tiếp':'Đang nối lại',good?'Điều ước chung':'Vẫn cập nhật định kỳ',good);
         if (status==='SUBSCRIBED' || status==='CHANNEL_ERROR' || status==='TIMED_OUT' || status==='CLOSED') finish();
       });
       setTimeout(finish,5000);
@@ -946,14 +896,12 @@
       .channel('moon-presence-v4',{config:{presence:{key:clientId}}})
       .on('presence',{event:'sync'},function () {
         const state = presenceChannel.presenceState();
-        onlineCount = Object.values(state).reduce(function (sum,items) {
-          return sum + items.length;
-        },0) || 1;
+        onlineCount = Object.keys(state).length || 1;
         updateMetrics();
       });
 
     presenceChannel.subscribe(async function (status) {
-      if (status!=='SUBSCRIBED') return;
+      if (status!=='SUBSCRIBED') { onlineCount=0;updateMetrics();return; }
       await presenceChannel.track({
         visitor:clientId,
         online_at:new Date().toISOString()
@@ -961,7 +909,7 @@
     });
   }
 
-  async function loadInitialData() {
+  async function loadInitialData(refreshFeed=true) {
     const results = await Promise.all([
       supabaseClient.from('wish_feed').select('*').order('created_at',{ascending:false}).limit(SKY_LIMIT),
       supabaseClient.from('wishes').select('id',{count:'exact',head:true}),
@@ -977,7 +925,7 @@
 
     renderLivingSky();
     updateMetrics();
-    await loadFeed(true);
+    if(refreshFeed) await loadFeed(true);
   }
 
   function validCard(card) {
@@ -1082,41 +1030,6 @@
     });
   });
 
-  let moonPoints = 0;
-  try { moonPoints = Number(localStorage.getItem('trang-moon-points')||0); } catch (error) {}
-  $('#moon-points').textContent = String(moonPoints);
-
-  function scheduleRabbit() {
-    clearTimeout(rabbitTimer);
-    rabbitTimer = setTimeout(showRabbit,10000+Math.random()*14000);
-  }
-
-  function showRabbit() {
-    const rabbit = $('#rabbit-easter');
-    const margin = 70;
-    rabbit.style.left = Math.max(12,margin+Math.random()*Math.max(1,innerWidth-margin*2))+'px';
-    rabbit.style.top = Math.max(80,80+Math.random()*Math.max(1,innerHeight-180))+'px';
-    rabbit.hidden = false;
-    clearTimeout(rabbitHideTimer);
-    rabbitHideTimer = setTimeout(function () {
-      rabbit.hidden = true;
-      scheduleRabbit();
-    },7000);
-  }
-
-  $('#rabbit-easter').addEventListener('click',function () {
-    clearTimeout(rabbitHideTimer);
-    $('#rabbit-easter').hidden = true;
-    moonPoints++;
-    $('#moon-points').textContent = String(moonPoints);
-    try { localStorage.setItem('trang-moon-points',String(moonPoints)); } catch (error) {}
-    burst(parseFloat($('#rabbit-easter').style.left)||cw*.5,parseFloat($('#rabbit-easter').style.top)||ch*.5,24);
-    toast('+1 Moon Point');
-    scheduleRabbit();
-  });
-
-  scheduleRabbit();
-
   async function initDatabase() {
     const cfg = window.TRANG_SUPABASE || {};
     const valid = window.supabase && window.supabase.createClient && cfg.url && cfg.key && !String(cfg.url).includes('YOUR_');
@@ -1135,7 +1048,9 @@
       await subscribeRealtime();
       startPresence();
       await loadInitialData();
-      setDbState('Bầu trời trực tuyến',String(totalWishes) + ' điều ước · ' + String(totalLights) + ' lượt thắp',true);
+      const live=[...realtimeStates.values()].every(x=>x==='SUBSCRIBED');
+      setDbState(live?'Bầu trời trực tuyến':'Cập nhật định kỳ',String(totalWishes)+' điều ước',live);
+      document.dispatchEvent(new Event('trang:ready'));
     } catch (error) {
       console.error(error);
       setDbState('Mất kết nối','Thử tải lại trang',false);
@@ -1155,11 +1070,12 @@
     } else {
       lastFrame=0;
       startSky();
-      if (audio&&musicOn) audio.resume().catch(function () {});
+      if (audio&&musicOn) audio.resume().then(function(){nextNote=audio.currentTime+.08;}).catch(function () {});
     }
   });
 
-  addEventListener('pagehide',function () {
+  addEventListener('pagehide',function (event) {
+    if(event.persisted)return;
     if (presenceChannel && presenceChannel.untrack) presenceChannel.untrack().catch(function () {});
     if (wishChannel && wishChannel.unsubscribe) wishChannel.unsubscribe();
     if (reactionChannel && reactionChannel.unsubscribe) reactionChannel.unsubscribe();
@@ -1167,5 +1083,15 @@
     if (presenceChannel && presenceChannel.unsubscribe) presenceChannel.unsubscribe();
   });
 
+  window.TRANG = {client:()=>supabaseClient, toast, openWish:openWishPanel, makeFeedCard, burst,
+    draft:()=>({name:wishName.value,message:wishMessage.value,category:selectedCategory,color:selectedColor,style:selectedStyle,step:creatorStep}),
+    restoreDraft:d=>{wishName.value=d.name||'';wishMessage.value=d.message||'';selectedCategory=categoryLabels[d.category]?d.category:'other';selectedColor=colorLabels[d.color]?d.color:'amber';selectedStyle=styleLabels[d.style]?d.style:'classic';updateWishCount();updateLanternPreview();
+      $$('#category-options [data-category]').forEach(x=>x.classList.toggle('active',x.dataset.category===selectedCategory));
+      $$('#color-options [data-color]').forEach(x=>x.classList.toggle('active',x.dataset.color===selectedColor));
+      $$('#style-options [data-style]').forEach(x=>x.classList.toggle('active',x.dataset.style===selectedStyle));setCreatorStep(1);},
+    card:()=>validCard({to:$('#recipient').value,message:$('#greeting').value,from:$('#sender').value})};
+  let reconciling=false;
+  async function reconcile(){if(!supabaseClient||document.hidden||reconciling)return;reconciling=true;try{await loadInitialData(false);}catch{setDbState('Mất kết nối','Đang chờ mạng trở lại',false);}finally{reconciling=false;}}
+  setInterval(reconcile,30000);addEventListener('online',reconcile);addEventListener('pageshow',event=>{if(event.persisted)reconcile();});
   initDatabase();
 })();

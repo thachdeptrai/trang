@@ -11,17 +11,17 @@
   <meta property="og:type" content="website">
   <title>TRĂNG — Living Mid-Autumn Sky</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Noto+Serif+Display:ital,wght@0,500;0,600;1,500;1,600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <link rel="stylesheet" href="assets/fonts/fonts.css">
+  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="v5.css?v=5">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23071923'/%3E%3Ctext x='7' y='30' font-size='30' fill='%23efc773'%3E☾%3C/text%3E%3C/svg%3E">
+  <script src="assets/vendor/supabase.js" defer></script>
   <script src="supabase-config.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=5" defer></script>
+  <script src="v5.js?v=5" defer></script>
 </head>
 <body data-scene="gold">
+  <a class="skip-link" href="#living-sky">Đến bầu trời điều ước</a>
   <canvas id="sky-canvas" aria-hidden="true"></canvas>
   <div class="grain" aria-hidden="true"></div>
   <div class="pointer-light" id="pointer-light" aria-hidden="true"></div>
@@ -29,13 +29,13 @@
   <header class="site-header" id="site-header">
     <a class="brand" href="#home" aria-label="TRĂNG">
       <span class="brand-orb" aria-hidden="true">◐</span>
-      <span>TRĂNG<small>LIVING MID-AUTUMN SKY</small></span>
+      <span>TRĂNG<small>ĐÊM HỘI TRUNG THU</small></span>
     </a>
 
     <nav class="desktop-nav" aria-label="Điều hướng">
       <a href="#living-sky">Bầu trời</a>
       <a href="#explore">Khám phá</a>
-      <a href="#letter">Thiệp</a>
+      <a href="#friends">Hội bạn</a><a href="#game">Trò chơi</a><a href="#my-moon">Góc của tôi</a><a href="#letter">Thiệp</a>
     </nav>
 
     <div class="header-live">
@@ -50,10 +50,10 @@
   <nav class="mobile-nav" id="mobile-nav" hidden>
     <a href="#living-sky">Bầu trời</a>
     <a href="#explore">Khám phá điều ước</a>
-    <a href="#letter">Tạo thiệp</a>
+    <a href="#friends">Hội bạn</a><a href="#game">Trò chơi</a><a href="#my-moon">Góc của tôi</a><a href="#letter">Tạo thiệp</a>
   </nav>
 
-  <main>
+  <main id="main">
     <section class="hero" id="home">
       <div class="hero-photo" aria-hidden="true"></div>
       <div class="hero-grade" aria-hidden="true"></div>
@@ -68,8 +68,8 @@
 
       <div class="hero-copy">
         <div class="live-label"><span class="live-dot online"></span><span id="hero-live-label">REALTIME SKY · ONLINE</span></div>
-        <h1><span>Một bầu trời.</span><em>Hàng nghìn chiếc đèn.</em></h1>
-        <p>Mỗi điều ước có màu, hình dáng và ánh sáng riêng.</p>
+        <h1><span>Một bầu trời.</span><em>Cùng thắp một đêm vui.</em></h1>
+        <p>Thả điều ước, hẹn bạn bè và gom ánh sao cho bộ sưu tập của bạn.</p>
 
         <div class="hero-actions">
           <a class="button primary" href="#living-sky">Tạo đèn của bạn <span>↗</span></a>
@@ -88,7 +88,7 @@
 
     <section class="living-section" id="living-sky">
       <div class="section-titlebar">
-        <div><span class="index">01</span><h2>Living Sky</h2></div>
+        <div><span class="index">01</span><h2>Bầu trời điều ước</h2></div>
         <div class="sky-status"><span class="live-dot" id="db-dot"></span><span><b id="db-state">Đang kết nối</b><small id="db-detail">Supabase realtime</small></span></div>
       </div>
 
@@ -106,7 +106,8 @@
           <span><b id="sky-latest">0</b> đèn gần nhất</span>
         </div>
 
-        <form class="creator" id="wish-form">
+        <form class="creator" id="wish-form" novalidate>
+          <p id="draft-status" class="draft-status" role="status"></p>
           <div class="creator-progress">
             <span class="creator-step-dot active" data-step-dot="1">1</span>
             <i></i>
@@ -197,7 +198,7 @@
 
     <section class="explore-section" id="explore">
       <div class="section-titlebar explore-title">
-        <div><span class="index">02</span><h2>Explore</h2></div>
+        <div><span class="index">02</span><h2>Khám phá</h2></div>
         <p>Đọc, tìm và thắp sáng những điều ước bạn thấy đáng nhớ.</p>
       </div>
 
@@ -233,6 +234,37 @@
       </div>
     </section>
 
+    <section class="v5-section" id="friends" aria-labelledby="friends-title">
+      <div class="v5-heading"><div><span class="eyebrow-v5">HẸN NHAU DƯỚI TRĂNG</span><h2 id="friends-title">Một phòng. Cả hội.</h2></div><p>Gửi mã cho bạn bè. Viết điều ước và cùng thả đèn khi đếm ngược về 0.</p></div>
+      <div class="room-entry" id="room-entry">
+        <form id="create-room-form" class="v5-card"><h3>Mở đêm hội của bạn</h3><label for="room-host-name">Tên của bạn</label><input id="room-host-name" maxlength="40" required autocomplete="nickname" placeholder="Tên hiển thị"><label for="room-title">Tên phòng</label><input id="room-title" maxlength="60" required placeholder="Đêm trăng của hội mình"><button class="button primary full" type="submit">Tạo phòng mới ↗</button><p class="helper">Tối đa 20 người · Phòng tồn tại 24 giờ</p></form>
+        <form id="join-room-form" class="v5-card"><h3>Đã có lời mời?</h3><label for="room-guest-name">Tên của bạn</label><input id="room-guest-name" maxlength="40" required autocomplete="nickname" placeholder="Tên hiển thị"><label for="room-code">Mã phòng</label><input id="room-code" maxlength="8" minlength="8" pattern="[a-fA-F0-9]{8}" required placeholder="8 ký tự trên lời mời" autocapitalize="characters" spellcheck="false"><button class="button glass full" type="submit">Vào cùng bạn bè →</button><p class="helper">Ai có mã đều có thể tham gia. Đèn trong phòng được hiển thị cho thành viên.</p></form>
+      </div>
+      <p id="room-status" class="inline-status" role="status"></p>
+      <div class="room-live v5-card" id="room-live" hidden>
+        <div class="room-top"><div><span class="eyebrow-v5">ĐÊM HỘI ĐANG MỞ</span><h3 id="current-room-title"></h3><p>Mã phòng: <strong id="current-room-code"></strong></p></div><div class="share-actions"><button class="button glass" id="invite-room" type="button">Sao chép lời mời</button><button class="button glass" id="leave-room" type="button">Rời phòng</button></div></div>
+        <input id="room-link" class="copy-field" readonly hidden aria-label="Link mời vào phòng">
+        <div class="room-stage" id="room-stage"><div id="room-lanterns" class="room-lanterns" aria-label="Đèn của các thành viên"></div><div class="room-countdown"><b id="room-countdown">Cùng chuẩn bị đèn</b><span id="room-subtitle">Đèn của mọi người sẽ xuất hiện tại đây.</span></div></div>
+        <div class="room-controls"><form id="ready-room-form"><label for="room-wish">Điều ước cho lượt thả chung</label><textarea id="room-wish" maxlength="180" required rows="3" placeholder="Một điều ước gửi cùng hội bạn…"></textarea><label for="room-color">Màu đèn</label><select id="room-color"><option value="amber">Vàng trăng</option><option value="red">Đỏ may mắn</option><option value="jade">Ngọc bình an</option><option value="blue">Xanh ước mơ</option><option value="violet">Tím thương nhớ</option></select><button class="button primary" type="submit">Tôi đã sẵn sàng ✓</button></form><div><h4>Những người đang cùng ngắm trăng</h4><ul id="room-members" class="member-list"></ul><button class="button primary full" id="launch-room" type="button" hidden>Bắt đầu đếm ngược 10 giây</button><p class="helper">Chủ phòng bắt đầu khi tất cả người đang online đã sẵn sàng. Đồng hồ đồng bộ theo server.</p></div></div>
+      </div>
+    </section>
+
+    <section class="v5-section game-section" id="game" aria-labelledby="game-title">
+      <div class="v5-heading"><div><span class="eyebrow-v5">24 GIÂY DƯỚI TRĂNG</span><h2 id="game-title">Gom sao đêm rằm</h2></div><p>Chạm vào sao trước khi nó biến mất. Mỗi sao được 1 điểm để đổi đồ trong bộ sưu tập.</p></div>
+      <div class="game-layout"><div class="game-board" id="game-board" aria-label="Sân chơi gom sao"><div class="game-hud"><span>CÒN <b id="game-time">24</b>s</span><span>ĐÃ GOM <b id="game-score">0</b>/24</span></div><div class="game-intro" id="game-intro"><span class="game-emblem" aria-hidden="true">✦</span><h3>Săn một túi ánh sao</h3><p>24 ngôi sao, mỗi giây một cơ hội.<br>Chạm/click hoặc giữ focus và nhấn Enter.</p><button id="game-start" class="button primary" type="button">Bắt đầu chơi ✦</button></div><button id="game-target" type="button" aria-label="Bắt ngôi sao" hidden>✦</button><div class="game-result" id="game-result" hidden><h3 id="game-result-title" tabindex="-1"></h3><p id="game-result-text"></p><button class="button primary" id="game-again" type="button">Chơi ván mới</button><button class="button glass" id="game-retry" type="button" hidden>Lưu lại kết quả</button><a href="#my-moon" class="button glass">Mở bộ sưu tập →</a></div></div><div class="v5-card game-guide"><span class="eyebrow-v5">CHƠI · TÍCH ĐIỂM · TRANG TRÍ</span><h3>Ánh sao có chỗ để về.</h3><p>Đổi điểm lấy hiệu ứng cho chiếc đèn trong Góc trăng của bạn.</p><ol><li>Ngôi sao đổi vị trí mỗi giây.</li><li>Chạm trúng trước khi ngôi sao tiếp theo xuất hiện.</li><li>Kết thúc ván, server lưu điểm và lịch sử.</li></ol><p class="helper">Tối đa 100 điểm mỗi ngày theo giờ UTC. Rời tab không dừng đồng hồ. Đây là trò chơi giải trí, điểm không có giá trị tiền tệ.</p></div></div><p id="game-status" class="inline-status" role="status"></p>
+    </section>
+
+    <section class="v5-section" id="my-moon" aria-labelledby="my-title">
+      <div class="v5-heading"><div><span class="eyebrow-v5">GÓC NHỎ CỦA BẠN</span><h2 id="my-title">Góc trăng của tôi</h2></div><button class="button glass" id="refresh-me" type="button">Làm mới ↻</button></div>
+      <div class="profile-strip v5-card"><div class="profile-lantern" id="profile-lantern" aria-hidden="true">🏮</div><div><h3 id="profile-name">Khách ngắm trăng</h3><p><strong id="profile-points">—</strong> Moon Points · <span id="profile-owned">0</span> chiếc đèn</p><span class="helper">Dữ liệu lưu trên database. Mã khách trên trình duyệt giúp bạn mở đúng góc trăng.</span></div><button id="open-recovery" class="button glass" type="button">Giữ mã khôi phục</button></div>
+      <p id="profile-status" class="inline-status" role="status"></p>
+      <div class="my-tabs" role="tablist" aria-label="Góc trăng"><button id="tab-owned" role="tab" aria-selected="true" aria-controls="my-owned" data-my-tab="owned">Đèn của tôi</button><button id="tab-saved" role="tab" aria-selected="false" aria-controls="my-saved" data-my-tab="saved" tabindex="-1">Đèn đã lưu</button><button id="tab-collection" role="tab" aria-selected="false" aria-controls="my-collection" data-my-tab="collection" tabindex="-1">Bộ sưu tập</button><button id="tab-ledger" role="tab" aria-selected="false" aria-controls="my-ledger" data-my-tab="ledger" tabindex="-1">Lịch sử điểm</button></div>
+      <div id="my-owned" role="tabpanel" aria-labelledby="tab-owned" class="my-grid"></div><div id="my-saved" role="tabpanel" aria-labelledby="tab-saved" class="my-grid" hidden></div>
+      <div id="my-collection" role="tabpanel" aria-labelledby="tab-collection" hidden><p class="helper">Trang trí hiện trên chiếc đèn đại diện ở Góc trăng. Các kiểu đèn cơ bản của bầu trời vẫn miễn phí.</p><div id="collection-grid" class="collection-grid"></div></div><div id="my-ledger" role="tabpanel" aria-labelledby="tab-ledger" hidden></div>
+    </section>
+
+    <dialog id="recovery-dialog"><button class="dialog-close" data-close type="button" aria-label="Đóng">×</button><h2>Giữ lại góc trăng</h2><p>Mã này là chìa khóa mở đèn, điểm và đồ sưu tập của bạn. Cất riêng, không gửi vào phòng hoặc lời chúc công khai.</p><label for="recovery-code">Mã khách của bạn</label><input id="recovery-code" readonly type="password" autocomplete="off"><button class="button glass" id="copy-recovery" type="button">Sao chép mã riêng</button><hr><form id="restore-profile-form"><label for="restore-code">Đã có mã từ thiết bị khác?</label><input id="restore-code" type="password" minlength="64" maxlength="64" pattern="[a-f0-9]{64}" autocomplete="off" required placeholder="Dán mã đã giữ trước đây"><button class="button primary full" type="submit">Mở góc trăng bằng mã này</button><p id="recovery-status" role="status"></p></form></dialog>
+
     <section class="letter-section" id="letter">
       <div class="letter-inner">
         <div class="letter-copy">
@@ -253,7 +285,7 @@
     </section>
   </main>
 
-  <aside class="wish-panel" id="wish-panel" aria-hidden="true">
+  <aside class="wish-panel" id="wish-panel" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="panel-name" inert>
     <button class="panel-close" id="panel-close" type="button" aria-label="Đóng">×</button>
     <div class="panel-lantern color-amber style-classic" id="panel-lantern"><span class="lantern-shell"></span><i></i></div>
 
@@ -276,6 +308,8 @@
       <span><b>Thắp sáng điều ước</b><small><span id="panel-light-count">0</span> người đã thắp</small></span>
     </button>
 
+    <div class="panel-share"><button class="button glass" id="wish-link" type="button">Sao chép link đèn</button><button class="button glass" id="wish-save" type="button">Lưu vào góc trăng</button></div>
+    <input id="wish-url" class="copy-field" readonly aria-label="Link chiếc đèn" hidden>
     <button class="report-link" id="report-wish" type="button">Báo cáo nội dung</button>
   </aside>
   <div class="panel-backdrop" id="panel-backdrop" hidden></div>
@@ -285,7 +319,7 @@
     <button id="sound" type="button" aria-pressed="false" aria-label="Bật nhạc"><span class="sound-bars"><i></i><i></i><i></i></span></button>
     <button id="cinema-mode" type="button" aria-label="Cinema mode">⛶</button>
     <button id="dock-settings" type="button" aria-label="Điều chỉnh ánh sáng">☼</button>
-    <span class="moon-points" title="Moon points"><i>☾</i><b id="moon-points">0</b></span>
+    <a href="#my-moon" class="moon-points" title="Moon Points trên database"><i>☾</i><b id="moon-points">—</b></a>
 
     <div class="dock-popover" id="dock-popover" hidden>
       <label>Ánh trăng <input id="moon-intensity" type="range" min="30" max="130" value="92"></label>
@@ -314,7 +348,8 @@
       <textarea id="greeting" maxlength="400" rows="4" required>Chúc bạn một mùa Trung thu vui, khỏe và gặp nhiều điều thuận lợi.</textarea>
       <label for="sender">Người gửi</label>
       <input id="sender" maxlength="50" placeholder="Tên của bạn" required>
-      <button class="button primary full" type="submit">Tạo link chia sẻ ↗</button>
+      <label for="card-format">Khổ ảnh tải về</label><select id="card-format"><option value="square">Vuông · 1080 × 1080</option><option value="story">Story · 1080 × 1920</option></select>
+      <div class="share-actions"><button class="button primary" type="submit">Tạo link chia sẻ ↗</button><button class="button glass" id="export-card" type="button">Tải thiệp PNG ↓</button></div><p id="export-status" role="status"></p>
       <div id="share-result" hidden>
         <label for="share-link">Link</label>
         <input id="share-link" readonly>
@@ -354,5 +389,6 @@
   </dialog>
 
   <noscript><div class="noscript">Cần JavaScript để dùng bầu trời realtime.</div></noscript>
+<button id="exit-cinema" type="button" hidden>Thoát chế độ ngắm trăng ×</button>
 </body>
 </html>

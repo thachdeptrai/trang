@@ -2,6 +2,14 @@
 
 Website Trung thu tương tác chạy trên GitHub Pages + Supabase.
 
+## V5 — Cùng thắp một đêm vui
+
+Đã thêm link từng đèn, Góc trăng, bản nháp, phòng bạn bè thả đèn đồng loạt,
+xuất thiệp PNG và mini-game Gom sao nối với điểm/bộ sưu tập trên database.
+Font được tự lưu cùng website; form, mobile và đồng bộ được gia cố.
+
+Xem [hướng dẫn V5, migration và kiểm tra](RELEASE-V5.md).
+
 ## V4
 
 V4 thu gọn website về ba trải nghiệm chính:
